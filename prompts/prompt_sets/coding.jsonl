@@ -1,0 +1,2 @@
+{"id":"cod01","category":"coding","prompt":"Write a Python function that returns the median of a list of numbers without external libraries."}
+{"id":"cod02","category":"coding","prompt":"Write a Python function `safe_divide(a, b)` that returns `None` when `b` is zero and otherwise returns the division result; include 3 simple tests."}

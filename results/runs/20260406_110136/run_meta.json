@@ -1,0 +1,6 @@
+{
+  "run_id": "20260406_110136",
+  "created_at": "2026-04-06T11:01:36.165934",
+  "config": "/home/mighty/Documents/workspace/local-llm-quant-bench/configs/phase1.yaml",
+  "prompts": "/home/mighty/Documents/workspace/local-llm-quant-bench/prompts/phase1_prompts.jsonl"
+}

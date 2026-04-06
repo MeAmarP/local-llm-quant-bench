@@ -1,0 +1,2 @@
+{"id":"sum01","category":"summarization","prompt":"Summarize this in 3 sentences: Quantization reduces precision to lower memory and potentially improve throughput while risking accuracy."}
+{"id":"sum02","category":"summarization","prompt":"Summarize the following in exactly 2 bullet points: Lower-bit quantization can improve memory efficiency but may reduce model fidelity and compatibility across backends."}

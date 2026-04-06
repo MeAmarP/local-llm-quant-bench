@@ -1,0 +1,2 @@
+{"id":"ext01","category":"extraction","prompt":"Extract model, precision, and backend from this text and return JSON only: Model=Qwen2.5-3B-Instruct, precision=INT4, backend=llama.cpp."}
+{"id":"ext02","category":"extraction","prompt":"From the text below, extract all numeric values with units as JSON list. Text: Wall-clock latency was 1420 ms, throughput 56.2 tok/s, peak GPU memory 6120 MB, model load time 950 ms."}

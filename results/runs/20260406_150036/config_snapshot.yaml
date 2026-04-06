@@ -1,0 +1,58 @@
+project: local-llm-quant-bench
+plan_reference: README.md#learning-plan
+
+fixed:
+  model_family: "set-me (e.g., Qwen2.5-3B-Instruct)"
+  instruction_variant: "set-me (e.g., Instruct / Chat)"
+  hardware: "set-me (same machine/GPU for all variants)"
+  framework_versions: "set-me (pin versions where possible)"
+  max_new_tokens: 256
+  temperature: 0.0
+  do_sample: false
+  stop_conditions:
+    - "set-me (single EOS behavior across variants)"
+    - "set-me (same stop strings across variants)"
+
+variants:
+  - variant_id: baseline
+    quant_family: fp16_or_bf16
+    precision: fp16_or_bf16
+    backend: "set-me"
+    notes: "closest full precision baseline"
+
+  - variant_id: bnb_int8
+    quant_family: bitsandbytes
+    precision: int8
+    backend: transformers
+    notes: "8-bit weights"
+
+  - variant_id: bnb_int4
+    quant_family: bitsandbytes
+    precision: int4
+    backend: transformers
+    notes: "4-bit weights"
+
+  - variant_id: gguf_q4
+    quant_family: gguf
+    precision: q4
+    backend: llama.cpp
+    notes: "pick one GGUF quant level"
+
+  - variant_id: awq_or_gptq
+    quant_family: awq_or_gptq
+    precision: int4_or_mixed
+    backend: "set-me"
+    notes: "choose whichever is available for your model family"
+
+comparison_rules:
+  model_artifact: "can differ by runtime/backend"
+  model_scope: "must remain same model family + instruction variant"
+
+metrics:
+  - wall_clock_latency_ms
+  - generated_tokens
+  - tokens_per_sec
+  - prompt_tokens
+  - output_tokens
+  - peak_gpu_memory_mb
+  - model_load_time_ms

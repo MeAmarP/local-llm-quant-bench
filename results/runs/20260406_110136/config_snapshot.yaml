@@ -1,0 +1,48 @@
+project: local-llm-quant-bench
+phase: phase1_intuition
+
+fixed:
+  model_family: "set-me (e.g., Qwen2.5-3B-Instruct family)"
+  hardware: "set-me"
+  backend_runtime: "set-me (transformers/vllm/llama.cpp/etc)"
+
+variants:
+  - variant_id: baseline
+    quant_family: fp16_or_bf16
+    precision: fp16_or_bf16
+    backend: "set-me"
+    notes: "closest full precision baseline"
+
+  - variant_id: bnb_int8
+    quant_family: bitsandbytes
+    precision: int8
+    backend: transformers
+    notes: "8-bit weights"
+
+  - variant_id: bnb_int4
+    quant_family: bitsandbytes
+    precision: int4
+    backend: transformers
+    notes: "4-bit weights"
+
+  - variant_id: gguf_q4
+    quant_family: gguf
+    precision: q4
+    backend: llama.cpp
+    notes: "pick one GGUF quant level"
+
+  - variant_id: awq_or_gptq
+    quant_family: awq_or_gptq
+    precision: int4_or_mixed
+    backend: "set-me"
+    notes: "choose whichever is available for your model family"
+
+metrics:
+  - ttft_ms
+  - tokens_per_sec
+  - peak_vram_mb
+  - peak_ram_mb
+  - max_context_tokens
+  - quality_score_1_to_5
+  - long_context_stable
+  - ease_of_use_score_1_to_5

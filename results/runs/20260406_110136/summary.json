@@ -1,0 +1,24 @@
+{
+  "baseline": {
+    "n": 1,
+    "ttft_ms_median": 510.0,
+    "tokens_per_sec_mean": 42.1,
+    "peak_vram_mb_median": 8200.0,
+    "peak_ram_mb_median": 12100.0,
+    "max_context_tokens_max": 8192,
+    "quality_score_mean": 4.5,
+    "long_context_pass_rate": 1.0,
+    "ease_of_use_score_mean": 3.5
+  },
+  "bnb_int4": {
+    "n": 1,
+    "ttft_ms_median": 430.0,
+    "tokens_per_sec_mean": 58.3,
+    "peak_vram_mb_median": 5600.0,
+    "peak_ram_mb_median": 9800.0,
+    "max_context_tokens_max": 8192,
+    "quality_score_mean": 3.8,
+    "long_context_pass_rate": 1.0,
+    "ease_of_use_score_mean": 4.0
+  }
+}
