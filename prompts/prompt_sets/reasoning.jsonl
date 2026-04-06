@@ -1,2 +1,2 @@
-{"id":"rea01","category":"reasoning","prompt":"A shop sells 3 pens for $5. What is the cost of 14 pens? Show steps."}
-{"id":"rea02","category":"reasoning","prompt":"If variant A is 25% faster than baseline and baseline is 40 tok/s, what is variant A speed? Then estimate tokens generated in 90 seconds."}
+{"id":"rea01","task":"reasoning","prompt":"A shop sells 3 pens for $5. What is the cost of 14 pens? Show steps."}
+{"id":"rea02","task":"reasoning","prompt":"If variant A is 25% faster than baseline and baseline is 40 tok/s, what is variant A speed? Then estimate tokens generated in 90 seconds."}
