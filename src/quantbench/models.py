@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+"""Pydantic schema models used across quantbench pipelines."""
+
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
 
 class PromptCase(BaseModel):
+    """One benchmark prompt record loaded from JSONL prompt files."""
+
     model_config = ConfigDict(extra="forbid")
 
     id: str = Field(min_length=1)
@@ -14,6 +18,8 @@ class PromptCase(BaseModel):
 
 
 class RunSpec(BaseModel):
+    """Configuration for one benchmark run variant (backend + quantization + model reference)."""
+
     model_config = ConfigDict(extra="forbid")
 
     name: str = Field(min_length=1)
@@ -24,6 +30,8 @@ class RunSpec(BaseModel):
 
 
 class RunResult(BaseModel):
+    """Result payload for a single prompt execution under one run spec."""
+
     model_config = ConfigDict(extra="allow")
 
     run_name: str = Field(min_length=1)
