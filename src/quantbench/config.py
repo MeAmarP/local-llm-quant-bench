@@ -51,10 +51,6 @@ class BenchmarkConfig(BaseModel):
         description="List of quantization variants to measure"
     )
 
-    comparison_rules: dict[str, Any] = Field(
-        default_factory=dict,
-        description="Rules for valid comparison (e.g., model_artifact, model_scope)"
-    )
 
     @field_validator("variants")
     @classmethod

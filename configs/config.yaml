@@ -31,10 +31,6 @@ benchmark:
     - "<eos>"
     - "[END]"
   
-  # Comparison rules
-  comparison_rules:
-    model_artifact: "can differ by runtime/backend"
-    model_scope: "must remain same model family + instruction variant"
   
   # Metrics to collect
   metrics:

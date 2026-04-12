@@ -51,10 +51,6 @@ variants:
     precision: q4
     backend: llamacpp
     notes: "GGUF quantized"
-
-comparison_rules:
-  model_artifact: "can differ by runtime/backend"
-  model_scope: "must remain same model family"
 """)
 
         # models.yaml
