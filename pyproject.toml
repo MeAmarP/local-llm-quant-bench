@@ -46,7 +46,7 @@ transformers = [
 ]
 
 [project.scripts]
-quantbench = "src.quantbench.cli:main"
+quantbench = "quantbench.cli:main"
 
 [project.urls]
 Repository = "https://github.com/user/local-llm-quant-bench"

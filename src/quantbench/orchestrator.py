@@ -6,13 +6,13 @@ import logging
 from pathlib import Path
 from typing import Optional
 
-from src.quantbench.config import ConfigManager, ExperimentConfig
-from src.quantbench.models import PromptCase, RunResult
-from src.quantbench.prompts import load_prompts
-from src.quantbench.runners.base import BaseRunner
-from src.quantbench.runners.llamacpp_runner import LlamaCppRunner
-from src.quantbench.runners.transformers_runner import TransformersRunner
-from src.quantbench.utils.system_info import capture_system_info
+from .config import ConfigManager, ExperimentConfig
+from .models import PromptCase, RunResult
+from .prompts import load_prompts
+from .runners.base import BaseRunner
+from .runners.llamacpp_runner import LlamaCppRunner
+from .runners.transformers_runner import TransformersRunner
+from .utils.system_info import capture_system_info
 
 
 logger = logging.getLogger(__name__)

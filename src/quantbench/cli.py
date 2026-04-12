@@ -5,10 +5,64 @@ import logging
 import sys
 from pathlib import Path
 
-from src.quantbench.config import load_config
-from src.quantbench.orchestrator import BenchmarkOrchestrator
-from src.quantbench.prompts import load_prompts
-from src.quantbench.utils.logging_utils import setup_logging
+
+def _repo_root() -> Path:
+    """Return repository root inferred from this file location."""
+    return Path(__file__).resolve().parents[2]
+
+
+def _resolve_path(raw_path: Path, *, config_path: Path | None = None) -> Path:
+    """Resolve a potentially relative path across common project anchors."""
+    expanded = raw_path.expanduser()
+    if expanded.is_absolute():
+        return expanded
+
+    candidates: list[Path] = [Path.cwd() / expanded]
+
+    if config_path is not None:
+        cfg = config_path.expanduser()
+        cfg_abs = cfg if cfg.is_absolute() else (Path.cwd() / cfg)
+        candidates.append(cfg_abs.parent / expanded)
+        candidates.append(cfg_abs.parent.parent / expanded)
+
+    candidates.append(_repo_root() / expanded)
+
+    seen: set[Path] = set()
+    for candidate in candidates:
+        normalized = candidate.resolve(strict=False)
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        if normalized.exists():
+            return normalized
+
+    # Keep original relative path for clear downstream error messages.
+    return expanded
+
+
+def _load_runtime_dependencies():
+    """Import runtime modules in a way that supports both package and script execution."""
+    if __package__:
+        from .config import load_config
+        from .orchestrator import BenchmarkOrchestrator
+        from .prompts import load_prompts
+        from .utils.logging_utils import setup_logging
+        return load_config, BenchmarkOrchestrator, load_prompts, setup_logging
+
+    # Support direct execution, e.g. `python quantbench/cli.py --help` from `src/`.
+    current_file = Path(__file__).resolve()
+    src_root = current_file.parents[1]
+    repo_root = _repo_root()
+
+    for candidate in (str(src_root), str(repo_root)):
+        if candidate not in sys.path:
+            sys.path.insert(0, candidate)
+
+    from quantbench.config import load_config
+    from quantbench.orchestrator import BenchmarkOrchestrator
+    from quantbench.prompts import load_prompts
+    from quantbench.utils.logging_utils import setup_logging
+    return load_config, BenchmarkOrchestrator, load_prompts, setup_logging
 
 
 def main() -> None:
@@ -71,6 +125,8 @@ def main() -> None:
 
     args = parser.parse_args()
 
+    load_config, BenchmarkOrchestrator, load_prompts, setup_logging = _load_runtime_dependencies()
+
     # Setup logging
     setup_logging(level=args.log_level, log_file=args.log_file)
     logger = logging.getLogger(__name__)
@@ -86,19 +142,17 @@ def main() -> None:
         logger.info("Configuration loaded successfully")
 
         # Load prompts
-        prompts_path = (
-            args.prompts
-            if args.prompts
-            else (
-                Path(config_manager.experiment_config.prompt_file)
-                if config_manager.experiment_config
-                else None
-            )
+        configured_prompt_path = (
+            Path(config_manager.experiment_config.prompt_file)
+            if config_manager.experiment_config
+            else None
         )
+        prompts_path = args.prompts or configured_prompt_path or Path("prompts/prompts.jsonl")
 
         if not prompts_path:
             parser.error("No prompts file specified; provide --prompts or check experiment.yaml")
 
+        prompts_path = _resolve_path(prompts_path, config_path=config_path)
         logger.info(f"Loading prompts from: {prompts_path}")
         prompts = load_prompts(prompts_path)
         logger.info(f"Loaded {len(prompts)} prompts")

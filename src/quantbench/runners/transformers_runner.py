@@ -42,7 +42,7 @@ class TransformersRunner(BaseRunner):
             bnb_4bit_compute_dtype: Compute dtype for 4-bit quantization
             measure_gpu_memory: Track GPU memory usage
         """
-        super().__init__(run_spec, generation_config)
+        super().__init__(run_spec, generation_config=generation_config)
         self.model_id = model_id or model_path
         self.model_path = model_path
         self.device = device

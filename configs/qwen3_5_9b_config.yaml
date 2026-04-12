@@ -1,0 +1,182 @@
+###############################################################################
+# Unified Benchmark Configuration for local-llm-quant-bench
+#
+# This single YAML file consolidates all benchmark settings that were
+# previously spread across 4 separate files:
+#   - benchmark.yaml → benchmark section
+#   - models.yaml → variants section
+#   - generation.yaml → generation section
+#   - experiment.yaml → experiment section
+#
+# Usage: quantbench --config config.yaml
+###############################################################################
+
+# === PROJECT METADATA ===
+project: local-llm-quant-bench
+
+# === BENCHMARK CONFIGURATION ===
+# Fixed experimental parameters that must stay constant across all variants
+benchmark:
+  # Model specification (MUST BE IDENTICAL across all tested variants)
+  model_family: "Qwen2.5-3B-Instruct"
+  instruction_variant: "Instruct"
+  hardware: "NVIDIA RTX 4090"
+  framework_versions: "torch==2.1.0; transformers==4.36.0; llama-cpp-python==0.2.28"
+  
+  # Generation constraints (MUST STAY the same across all variants)
+  max_new_tokens: 256
+  temperature: 0.0                 # 0.0 = deterministic (greedy)
+  do_sample: false
+  stop_conditions:
+    - "<eos>"
+    - "[END]"
+  
+  
+  # Metrics to collect
+  metrics:
+    - wall_clock_latency_ms         # Total generation time
+    - generated_tokens              # Actual tokens generated
+    - tokens_per_sec                # Throughput
+    - prompt_tokens                 # Input token count
+    - output_tokens                 # Output token count
+    - peak_gpu_memory_mb            # Peak GPU memory
+    - model_load_time_ms            # Model initialization time
+
+# === GENERATION PARAMETERS ===
+# Token generation settings (must match benchmark.max_new_tokens and temperature)
+generation:
+  max_new_tokens: 512              # Match benchmark.max_new_tokens
+  temperature: 0.0                 # 0.0 = greedy, >0 = sampling
+  top_p: 1.0                       # 1.0 = disabled, <1.0 = nucleus sampling
+  do_sample: false
+  repetition_penalty: 1.0          # 1.0 = disabled, >1.0 = discourage repeats
+
+# === MODEL VARIANTS ===
+# Each variant maps one quantization approach to its model/configuration.
+# Variant IDs are user-defined keys; they appear in results and metrics.
+# 
+# Supported backends:
+#   - transformers: HuggingFace models (baseline, int8, int4, GPTQ, AWQ)
+#   - llamacpp: GGUF quantized models
+#
+variants:
+  # Baseline: Full precision reference (FP16/BF16)
+  qwen3_5_9b:
+    model_id: "Qwen/Qwen3.5-9B"
+    backend: transformers
+    quantization: baseline
+    quant_family: fp16_or_bf16
+    precision: fp16_or_bf16
+    notes: "Qwen3.5-9B multimodal baseline (9.6B parameters)"
+
+  qwen3_5_9b_int8:
+    model_id: "Qwen/Qwen3.5-9B"
+    backend: transformers
+    quantization: bitsandbytes_int8
+    quant_family: bitsandbytes
+    precision: int8
+    load_in_8bit: true
+    notes: "Qwen3.5-9B with 8-bit quantization"
+
+  qwen3_5_9b_int4:
+    model_id: "Qwen/Qwen3.5-9B"
+    backend: transformers
+    quantization: bitsandbytes_int4
+    quant_family: bitsandbytes
+    precision: int4
+    load_in_4bit: true
+    bnb_4bit_compute_dtype: float16
+    notes: "Qwen3.5-9B with 4-bit quantization"
+
+  # GGUF: Quantized with llama.cpp
+  # Note: Requires downloading GGUF model file first:
+  #   huggingface-cli download username/model-name-gguf \
+  #     model-q4_k_m.gguf --local-dir models/gguf/
+  gguf_q4:
+    model_path: "/home/mighty/Documents/workspace/local-llm-quant-bench/models/gguf/Qwen3.5-9B-Q4_K_M.gguf"
+    backend: llamacpp
+    quantization: gguf_q4
+    quant_family: gguf
+    precision: q4
+    n_ctx: 2048                    # Context window size
+    n_gpu_layers: 35               # GPU layers (adjust based on VRAM)
+    notes: "GGUF Q4_K_M quantization with llama.cpp"
+
+  # Optional: GPTQ (pre-quantized on HuggingFace Hub)
+  # Uncomment if available for your model
+  # gptq:
+  #   model_id: "username/model-name-gptq"
+  #   backend: transformers
+  #   quantization: gptq
+  #   quant_family: gptq
+  #   precision: int4_mixed
+  #   gptq_quantization_config:
+  #     bits: 4
+  #     group_size: 128
+  #   notes: "GPTQ quantization"
+
+  # Optional: AWQ (pre-quantized on HuggingFace Hub)
+  # Uncomment if available for your model
+  # awq:
+  #   model_id: "username/model-name-awq"
+  #   backend: transformers
+  #   quantization: awq
+  #   quant_family: awq
+  #   precision: int4
+  #   notes: "AWQ quantization"
+
+# === EXPERIMENT RUNTIME SETTINGS ===
+# Local environment and execution parameters
+experiment:
+  # Prompts to use for benchmarking
+  prompt_file: "prompts/prompts.jsonl"
+  # Alternative prompt sets:
+  # prompt_file: "prompts/prompt_sets/coding.jsonl"
+  # prompt_file: "prompts/prompt_sets/reasoning.jsonl"
+  # prompt_file: "prompts/prompt_sets/summarization.jsonl"
+  
+  # Where to save benchmark results
+  output_dir: "results/runs"
+  
+  # Hardware settings
+  device: "auto"                   # "auto", "cuda", "cuda:0", "cpu"
+  dtype: "auto"                    # "auto", "float32", "float16", "bfloat16"
+  
+  # Execution parameters
+  repetitions: 3                   # Number of runs per (prompt, variant)
+  warmup_runs: 1                   # Dry runs before measuring (cache warming)
+  measure_gpu_memory: true         # Capture peak GPU memory (requires nvidia-smi)
+
+###############################################################################
+# CONFIGURATION TIPS & TUNING GUIDE
+###############################################################################
+#
+# 1. SYSTEM TUNING
+#    - device: "cpu"          → CPU-only (slow, for testing)
+#    - device: "cuda"         → First GPU
+#    - device: "cuda:0"       → Specific GPU
+#    - dtype: "float32"       → Slower but compatible
+#    - dtype: "float16"       → Faster, may lose precision
+#    - dtype: "bfloat16"      → High-end GPUs (A100, H100)
+#
+# 2. FAST TESTING (quick validation)
+#    - Set repetitions: 1
+#    - Set warmup_runs: 0
+#    - Keep only baseline + 1 variant
+#
+# 3. PRODUCTION BENCHMARK
+#    - Set repetitions: 5+
+#    - Set warmup_runs: 2
+#    - Include all variants
+#    - Run on same machine across multiple sessions
+#
+# 4. MEMORY CONSTRAINTS
+#    - If OOM: reduce max_new_tokens, use int8/int4, or switch to CPU
+#    - Use GGUF variants (q2_k, q3_k, q4_k_m) on limited VRAM
+#
+# 5. VARIANT SELECTION
+#    - Minimum: baseline + one quantized (e.g., baseline + gguf_q4)
+#    - Balanced: baseline, bnb_int8, gguf_q4
+#    - Comprehensive: baseline, bnb_int8, bnb_int4, gguf_q4
+#
+###############################################################################
