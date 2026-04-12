@@ -13,7 +13,6 @@
 
 # === PROJECT METADATA ===
 project: local-llm-quant-bench
-plan_reference: README.md#learning-plan
 
 # === BENCHMARK CONFIGURATION ===
 # Fixed experimental parameters that must stay constant across all variants

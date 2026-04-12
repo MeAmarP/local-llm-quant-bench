@@ -26,7 +26,6 @@ def temp_config_dir():
         benchmark_yaml = tmpdir / "benchmark.yaml"
         benchmark_yaml.write_text("""
 project: test-benchmark
-plan_reference: README.md
 
 fixed:
   model_family: "Qwen2.5-3B"

@@ -40,7 +40,6 @@ class BenchmarkConfig(BaseModel):
     """Phase 1 benchmark constraints and variant definitions (benchmark.yaml)."""
 
     project: str
-    plan_reference: Optional[str] = None
 
     fixed: dict[str, Any] = Field(
         default_factory=dict,
@@ -230,9 +229,7 @@ class ConfigManager:
         
         Unified file format:
         ```yaml
-        project: local-llm-quant-bench
-        plan_reference: README.md
-        
+        project: local-llm-quant-bench        
         benchmark:
           model_family: "Qwen2.5-3B-Instruct"
           instruction_variant: "Instruct"
@@ -276,13 +273,11 @@ class ConfigManager:
         
         # Extract top-level metadata
         project = data.get("project", "local-llm-quant-bench")
-        plan_reference = data.get("plan_reference")
+            
         
         # Extract benchmark config
         benchmark_data = data.get("benchmark", {})
         benchmark_data["project"] = project
-        if plan_reference:
-            benchmark_data["plan_reference"] = plan_reference
         
         # Extract variants from the unified format
         variants_data = data.get("variants", {})
