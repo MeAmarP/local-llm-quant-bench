@@ -14,21 +14,39 @@ from src.quantbench.utils.logging_utils import setup_logging
 def main() -> None:
     """Main CLI entry point."""
     parser = argparse.ArgumentParser(
-        description="local-llm-quant-bench: Unified benchmark runner for AI model quantization."
+        description="local-llm-quant-bench: Unified benchmark runner for AI model quantization.",
+        epilog=(
+            "Examples:\n"
+            "  # Using unified config file (recommended)\n"
+            "  quantbench --config configs/config.yaml\n\n"
+            "  # Using multi-file directory (legacy)\n"
+            "  quantbench --config-dir configs/\n\n"
+            "  # With custom prompts and output\n"
+            "  quantbench --config configs/config.yaml --prompts my_prompts.jsonl --output-dir results/my_exp"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
 
-    parser.add_argument(
-        "--config-dir",
-        required=True,
+    # Config source: mutually exclusive group (at least one required)
+    config_group = parser.add_mutually_exclusive_group(required=True)
+    
+    config_group.add_argument(
+        "--config",
         type=Path,
-        help="Directory containing benchmark.yaml, models.yaml, generation.yaml, experiment.yaml",
+        help="Path to unified config.yaml file (recommended approach)",
+    )
+
+    config_group.add_argument(
+        "--config-dir",
+        type=Path,
+        help="Directory containing benchmark.yaml, models.yaml, generation.yaml, experiment.yaml (legacy approach)",
     )
 
     parser.add_argument(
         "--prompts",
         required=False,
         type=Path,
-        help="Path to prompts JSONL file (overrides experiment.yaml prompt_file)",
+        help="Path to prompts JSONL file (overrides prompt_file in config)",
     )
 
     parser.add_argument(
@@ -58,9 +76,13 @@ def main() -> None:
     logger = logging.getLogger(__name__)
 
     try:
+        # Determine config path (either unified file or directory)
+        config_path = args.config if args.config else args.config_dir
+        config_type = "unified config file" if args.config else "config directory"
+        
         # Load configuration
-        logger.info(f"Loading configuration from: {args.config_dir}")
-        config_manager = load_config(args.config_dir)
+        logger.info(f"Loading configuration from {config_type}: {config_path}")
+        config_manager = load_config(config_path)
         logger.info("Configuration loaded successfully")
 
         # Load prompts
@@ -68,7 +90,7 @@ def main() -> None:
             args.prompts
             if args.prompts
             else (
-                args.config_dir / config_manager.experiment_config.prompt_file
+                Path(config_manager.experiment_config.prompt_file)
                 if config_manager.experiment_config
                 else None
             )
