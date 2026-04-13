@@ -120,7 +120,7 @@ def main() -> None:
     parser.add_argument(
         "--log-file",
         type=Path,
-        help="Optional log file path",
+        help="Log file path (default: ./quantbench.log)",
     )
 
     args = parser.parse_args()
