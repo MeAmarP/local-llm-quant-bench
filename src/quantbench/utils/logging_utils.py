@@ -5,6 +5,11 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
+DEFAULT_LOG_FILE = Path("quantbench.log")
+DEFAULT_LOG_FMT = (
+    "%(asctime)s | %(levelname)-8s | %(name)s | %(filename)s:%(lineno)d | %(message)s"
+)
+
 
 def get_logger(name: str) -> logging.Logger:
     """Return a module logger."""
@@ -16,7 +21,7 @@ def setup_logging(
     *,
     logger_name: str | None = None,
     log_file: str | Path | None = None,
-    fmt: str = "%(asctime)s | %(levelname)-8s | %(name)s | %(message)s",
+    fmt: str = DEFAULT_LOG_FMT,
     datefmt: str = "%Y-%m-%d %H:%M:%S",
     force: bool = False,
 ) -> logging.Logger:
@@ -24,9 +29,10 @@ def setup_logging(
     Configure a consistent logger for benchmark modules and scripts.
 
     - Adds a console handler by default.
-    - Optionally adds a file handler.
+    - Adds a file handler (`quantbench.log`) by default.
     - Avoids duplicate handlers across repeated calls unless `force=True`.
     """
+    # Use root logger by default so all module loggers share one global configuration.
     logger = logging.getLogger(logger_name) if logger_name else logging.getLogger()
     logger.setLevel(_normalize_level(level))
 
@@ -45,13 +51,12 @@ def setup_logging(
         stream_handler.setFormatter(formatter)
         logger.addHandler(stream_handler)
 
-    if log_file is not None:
-        log_path = Path(log_file)
-        log_path.parent.mkdir(parents=True, exist_ok=True)
-        if not _has_file_handler(logger, log_path):
-            file_handler = logging.FileHandler(log_path, encoding="utf-8")
-            file_handler.setFormatter(formatter)
-            logger.addHandler(file_handler)
+    log_path = Path(log_file) if log_file is not None else DEFAULT_LOG_FILE
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    if not _has_file_handler(logger, log_path):
+        file_handler = logging.FileHandler(log_path, encoding="utf-8")
+        file_handler.setFormatter(formatter)
+        logger.addHandler(file_handler)
 
     # Avoid duplicate messages via root propagation when using named loggers.
     if logger_name:
@@ -65,10 +70,13 @@ def _normalize_level(level: str | int) -> int:
         return level
     if not isinstance(level, str):
         raise TypeError("level must be str or int")
-    resolved = logging.getLevelName(level.upper())
-    if isinstance(resolved, int):
-        return resolved
-    raise ValueError(f"Unknown log level: {level}")
+
+    # Accept standard level names (e.g. "INFO", "debug") and custom registered names.
+    normalized = level.strip().upper()
+    resolved = logging.getLevelNamesMapping().get(normalized)
+    if resolved is None:
+        raise ValueError(f"Unknown log level: {level}")
+    return resolved
 
 
 def _has_stream_handler(logger: logging.Logger) -> bool:

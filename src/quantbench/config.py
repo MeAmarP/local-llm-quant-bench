@@ -1,10 +1,13 @@
 # Objective: Load and validate benchmark configuration files.
 
+import logging
 from pathlib import Path
 from typing import Any, Optional
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+logger = logging.getLogger(__name__)
 
 
 class GenerationConfig(BaseModel):
@@ -115,12 +118,14 @@ class ConfigManager:
     def load_yaml(self, path: str | Path) -> dict[str, Any]:
         """Load a single YAML file."""
         path = Path(path)
+        logger.debug(f"Loading YAML file: {path}")
         if not path.exists():
             raise FileNotFoundError(f"Config file not found: {path}")
         with open(path, "r") as f:
             data = yaml.safe_load(f)
         if data is None:
             data = {}
+        logger.debug(f"Loaded YAML file: {path}")
         return data
 
     def load_from_dir(
@@ -148,6 +153,7 @@ class ConfigManager:
             ValueError: If validation fails (e.g., variant ID mismatch)
         """
         config_dir = Path(config_dir)
+        logger.info(f"Loading multi-file config from directory: {config_dir}")
 
         # Load benchmark config
         benchmark_path = config_dir / benchmark_name
@@ -178,17 +184,24 @@ class ConfigManager:
             raise ValueError(
                 f"Variant IDs in models.yaml but missing in benchmark.yaml: {extra_in_models}"
             )
+        logger.debug(f"Validated variant IDs: {len(benchmark_variant_ids)} variant(s)")
 
         # Load generation config (optional; defaults provided)
         generation_path = config_dir / generation_name
         if generation_path.exists():
             generation_data = self.load_yaml(generation_path)
             self.generation_config = GenerationConfig(**generation_data)
+            logger.debug(f"Loaded optional generation config: {generation_path}")
+        else:
+            logger.debug("generation.yaml not found; using default generation config")
 
         # Load experiment config
         experiment_path = config_dir / experiment_name
         experiment_data = self.load_yaml(experiment_path)
         self.experiment_config = ExperimentConfig(**experiment_data)
+        logger.info(
+            f"Loaded multi-file config successfully: {len(self.models_config)} variant(s)"
+        )
 
         return self
 
@@ -265,6 +278,7 @@ class ConfigManager:
             ValueError: If validation fails
         """
         config_path = Path(config_path)
+        logger.info(f"Loading unified config file: {config_path}")
         data = self.load_yaml(config_path)
         
         # Extract top-level metadata
@@ -316,6 +330,9 @@ class ConfigManager:
         # Load experiment config
         experiment_data = data.get("experiment", {})
         self.experiment_config = ExperimentConfig(**experiment_data)
+        logger.info(
+            f"Loaded unified config successfully: {len(self.models_config)} variant(s)"
+        )
         
         return self
 
@@ -348,13 +365,16 @@ def load_config(config_path: str | Path) -> ConfigManager:
     """
     config_path = Path(config_path)
     manager = ConfigManager()
+    logger.debug(f"Resolving config path: {config_path}")
     
     # Detect if it's a file or directory
     if config_path.is_file():
         # Single unified config file
+        logger.debug("Config path is a file; using unified config loader")
         manager.load_from_unified_file(config_path)
     elif config_path.is_dir():
         # Multi-file directory approach (backward compatibility)
+        logger.debug("Config path is a directory; using multi-file config loader")
         manager.load_from_dir(config_path)
     else:
         raise FileNotFoundError(
@@ -363,6 +383,6 @@ def load_config(config_path: str | Path) -> ConfigManager:
             "  - Path to config.yaml file\n"
             "  - Path to directory containing benchmark.yaml, models.yaml, etc."
         )
+    logger.info("Configuration loaded and validated")
     
     return manager
-
