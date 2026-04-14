@@ -71,29 +71,18 @@ def main() -> None:
         description="local-llm-quant-bench: Unified benchmark runner for AI model quantization.",
         epilog=(
             "Examples:\n"
-            "  # Using unified config file (recommended)\n"
-            "  quantbench --config configs/config.yaml\n\n"
-            "  # Using multi-file directory (legacy)\n"
-            "  quantbench --config-dir configs/\n\n"
-            "  # With custom prompts and output\n"
-            "  quantbench --config configs/config.yaml --prompts my_prompts.jsonl --output-dir results/my_exp"
+            "  quantbench --config configs/config.yaml\n"
+            "  quantbench --config configs/config.yaml --prompts my_prompts.jsonl\n"
+            "  quantbench --config configs/config.yaml --output-dir results/my_exp"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
 
-    # Config source: mutually exclusive group (at least one required)
-    config_group = parser.add_mutually_exclusive_group(required=True)
-    
-    config_group.add_argument(
+    parser.add_argument(
         "--config",
         type=Path,
-        help="Path to unified config.yaml file (recommended approach)",
-    )
-
-    config_group.add_argument(
-        "--config-dir",
-        type=Path,
-        help="Directory containing benchmark.yaml, models.yaml, generation.yaml, experiment.yaml (legacy approach)",
+        required=True,
+        help="Path to unified config.yaml file",
     )
 
     parser.add_argument(
@@ -105,9 +94,9 @@ def main() -> None:
 
     parser.add_argument(
         "--output-dir",
-        default="results/runs",
+        default=None,
         type=Path,
-        help="Root directory for run artifacts (default: results/runs)",
+        help="Root directory for run artifacts (overrides output_dir in config; default: results/runs)",
     )
 
     parser.add_argument(
@@ -132,13 +121,9 @@ def main() -> None:
     logger = logging.getLogger(__name__)
 
     try:
-        # Determine config path (either unified file or directory)
-        config_path = args.config if args.config else args.config_dir
-        config_type = "unified config file" if args.config else "config directory"
-        
         # Load configuration
-        logger.info(f"Loading configuration from {config_type}: {config_path}")
-        config_manager = load_config(config_path)
+        logger.info(f"Loading configuration from: {args.config}")
+        config_manager = load_config(args.config)
         logger.info("Configuration loaded successfully")
 
         # Load prompts
@@ -152,17 +137,25 @@ def main() -> None:
         if not prompts_path:
             parser.error("No prompts file specified; provide --prompts or check experiment.yaml")
 
-        prompts_path = _resolve_path(prompts_path, config_path=config_path)
+        prompts_path = _resolve_path(prompts_path, config_path=args.config)
         logger.info(f"Loading prompts from: {prompts_path}")
         prompts = load_prompts(prompts_path)
         logger.info(f"Loaded {len(prompts)} prompts")
+
+        # Resolve output directory: CLI arg > experiment_config.output_dir > default
+        configured_output_dir = (
+            Path(config_manager.experiment_config.output_dir)
+            if config_manager.experiment_config
+            else None
+        )
+        output_dir = args.output_dir or configured_output_dir or Path("results/runs")
 
         # Run benchmark
         logger.info(f"Starting benchmark with {len(prompts)} prompts")
         orchestrator = BenchmarkOrchestrator(
             config_manager=config_manager,
             prompts=prompts,
-            output_dir=args.output_dir,
+            output_dir=output_dir,
         )
 
         run_dir = orchestrator.run()

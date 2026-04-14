@@ -128,83 +128,6 @@ class ConfigManager:
         logger.debug(f"Loaded YAML file: {path}")
         return data
 
-    def load_from_dir(
-        self,
-        config_dir: str | Path,
-        benchmark_name: str = "benchmark.yaml",
-        models_name: str = "models.yaml",
-        generation_name: str = "generation.yaml",
-        experiment_name: str = "experiment.yaml",
-    ) -> "ConfigManager":
-        """Load all 4 config files from a directory.
-        
-        Args:
-            config_dir: Directory containing benchmark.yaml, models.yaml, generation.yaml, experiment.yaml
-            benchmark_name: Name of benchmark config file (default: benchmark.yaml)
-            models_name: Name of models config file (default: models.yaml)
-            generation_name: Name of generation config file (default: generation.yaml)
-            experiment_name: Name of experiment config file (default: experiment.yaml)
-        
-        Returns:
-            self (for chaining)
-        
-        Raises:
-            FileNotFoundError: If required config files are missing
-            ValueError: If validation fails (e.g., variant ID mismatch)
-        """
-        config_dir = Path(config_dir)
-        logger.info(f"Loading multi-file config from directory: {config_dir}")
-
-        # Load benchmark config
-        benchmark_path = config_dir / benchmark_name
-        benchmark_data = self.load_yaml(benchmark_path)
-        self.benchmark_config = BenchmarkConfig(**benchmark_data)
-
-        # Load models config
-        models_path = config_dir / models_name
-        models_data = self.load_yaml(models_path)
-        for variant_id, spec_data in models_data.items():
-            if not isinstance(spec_data, dict):
-                raise ValueError(f"models.yaml: variant '{variant_id}' must be a dict")
-            spec_data_copy = dict(spec_data)
-            spec_data_copy["variant_id"] = variant_id
-            self.models_config[variant_id] = ModelSpec(**spec_data_copy)
-
-        # Validate variant ID consistency
-        benchmark_variant_ids = {v.variant_id for v in self.benchmark_config.variants}
-        models_variant_ids = set(self.models_config.keys())
-        missing_in_models = benchmark_variant_ids - models_variant_ids
-        extra_in_models = models_variant_ids - benchmark_variant_ids
-
-        if missing_in_models:
-            raise ValueError(
-                f"Variant IDs in benchmark.yaml but missing in models.yaml: {missing_in_models}"
-            )
-        if extra_in_models:
-            raise ValueError(
-                f"Variant IDs in models.yaml but missing in benchmark.yaml: {extra_in_models}"
-            )
-        logger.debug(f"Validated variant IDs: {len(benchmark_variant_ids)} variant(s)")
-
-        # Load generation config (optional; defaults provided)
-        generation_path = config_dir / generation_name
-        if generation_path.exists():
-            generation_data = self.load_yaml(generation_path)
-            self.generation_config = GenerationConfig(**generation_data)
-            logger.debug(f"Loaded optional generation config: {generation_path}")
-        else:
-            logger.debug("generation.yaml not found; using default generation config")
-
-        # Load experiment config
-        experiment_path = config_dir / experiment_name
-        experiment_data = self.load_yaml(experiment_path)
-        self.experiment_config = ExperimentConfig(**experiment_data)
-        logger.info(
-            f"Loaded multi-file config successfully: {len(self.models_config)} variant(s)"
-        )
-
-        return self
-
     def get_variant_config(self, variant_id: str) -> tuple[VariantSpec, ModelSpec, GenerationConfig]:
         """Get combined config for a specific variant.
         
@@ -218,7 +141,7 @@ class ConfigManager:
             ValueError: If variant_id not found
         """
         if not self.benchmark_config:
-            raise RuntimeError("ConfigManager not initialized; call load_from_dir() first")
+            raise RuntimeError("ConfigManager not initialized; call load_config() first")
 
         variant = next(
             (v for v in self.benchmark_config.variants if v.variant_id == variant_id),
@@ -347,42 +270,25 @@ class ConfigManager:
 
 
 def load_config(config_path: str | Path) -> ConfigManager:
-    """Load and validate benchmark configuration.
-    
-    Supports both single unified file (config.yaml) and multi-file directory approach.
+    """Load and validate benchmark configuration from a unified YAML file.
     
     Args:
-        config_path: Either:
-            - Path to unified config.yaml file (recommended)
-            - Path to directory containing benchmark.yaml, models.yaml, generation.yaml, experiment.yaml
+        config_path: Path to unified config.yaml file
     
     Returns:
         ConfigManager instance with all configs loaded and validated
     
     Raises:
-        FileNotFoundError: If required files missing
+        FileNotFoundError: If config file does not exist
         ValueError: If validation fails
     """
     config_path = Path(config_path)
-    manager = ConfigManager()
-    logger.debug(f"Resolving config path: {config_path}")
-    
-    # Detect if it's a file or directory
-    if config_path.is_file():
-        # Single unified config file
-        logger.debug("Config path is a file; using unified config loader")
-        manager.load_from_unified_file(config_path)
-    elif config_path.is_dir():
-        # Multi-file directory approach (backward compatibility)
-        logger.debug("Config path is a directory; using multi-file config loader")
-        manager.load_from_dir(config_path)
-    else:
+    if not config_path.is_file():
         raise FileNotFoundError(
-            f"Config path does not exist: {config_path}\n"
-            "Provide either:\n"
-            "  - Path to config.yaml file\n"
-            "  - Path to directory containing benchmark.yaml, models.yaml, etc."
+            f"Config file not found: {config_path}\n"
+            "Provide a path to a unified config YAML file (e.g. configs/config.yaml)"
         )
+    manager = ConfigManager()
+    manager.load_from_unified_file(config_path)
     logger.info("Configuration loaded and validated")
-    
     return manager
