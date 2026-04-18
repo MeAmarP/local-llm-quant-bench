@@ -107,6 +107,7 @@ class TransformersRunner(BaseRunner):
             try:
                 import bitsandbytes  # noqa: F401
             except ImportError as e:
+                logger.error("bitsandbytes is required for 8-bit quantization but is not installed")
                 raise ImportError(
                     "bitsandbytes not installed; install with: "
                     "pip install bitsandbytes"
@@ -124,6 +125,7 @@ class TransformersRunner(BaseRunner):
                 try:
                     from transformers import BitsAndBytesConfig
                 except ImportError as e:
+                    logger.error("bitsandbytes is required for 4-bit quantization but is not installed")
                     raise ImportError(
                         "bitsandbytes not installed; install with: pip install bitsandbytes"
                     ) from e
