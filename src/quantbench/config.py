@@ -81,7 +81,7 @@ class ModelSpec(BaseModel):
     @field_validator("backend")
     @classmethod
     def valid_backend(cls, v: str) -> str:
-        valid = {"transformers", "llamacpp", "vllm", "onnx"}
+        valid = {"transformers", "llamacpp", "llamacpp_server", "vllm", "onnx"}
         if v not in valid:
             raise ValueError(f"backend must be one of {valid}")
         return v
