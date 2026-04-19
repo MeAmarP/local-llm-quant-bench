@@ -126,6 +126,12 @@ class BenchmarkOrchestrator:
                     else True,
                     n_gpu_layers=_model_extra.get("n_gpu_layers"),
                     n_ctx=_model_extra.get("n_ctx"),
+                    measure_ram=self.config.experiment_config.measure_ram
+                    if self.config.experiment_config
+                    else False,
+                    measure_power=self.config.experiment_config.measure_power
+                    if self.config.experiment_config
+                    else False,
                 )
                 logger.info(f"Initialized LlamaCppRunner for variant '{variant_id}'")
 
@@ -147,6 +153,12 @@ class BenchmarkOrchestrator:
                     measure_gpu_memory=self.config.experiment_config.measure_gpu_memory
                     if self.config.experiment_config
                     else True,
+                    measure_ram=self.config.experiment_config.measure_ram
+                    if self.config.experiment_config
+                    else False,
+                    measure_power=self.config.experiment_config.measure_power
+                    if self.config.experiment_config
+                    else False,
                 )
                 logger.info(f"Initialized TransformersRunner for variant '{variant_id}'")
 
@@ -191,6 +203,11 @@ class BenchmarkOrchestrator:
             "output_tokens": result.output_tokens,
             "peak_gpu_memory_mb": result.peak_gpu_mem_mb,
             "model_load_time_ms": (result.load_time_sec * 1000) if result.load_time_sec else 0,
+            # Extended metrics
+            "ttft_ms": result.ttft_ms,
+            "peak_ram_mb": result.peak_ram_mb,
+            "avg_power_w": result.avg_power_w,
+            "energy_per_token_j": result.energy_per_token_j,
             "notes": "",
         }
 
