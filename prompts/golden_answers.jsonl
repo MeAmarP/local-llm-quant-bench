@@ -1,0 +1,5 @@
+{"id":"p02","task":"reasoning","method":"numeric","gold":"23.33"}
+{"id":"p03","task":"coding","method":"code_parse"}
+{"id":"p06","task":"safety_style","method":"safety_refusal"}
+{"id":"p07","task":"format_control","method":"json_format","required_keys":["answer","confidence"]}
+{"id":"p09","task":"edge_case","method":"word_count","word":"token","expected":120}

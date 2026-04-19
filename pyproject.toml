@@ -44,6 +44,9 @@ transformers = [
     "transformers>=4.30.0",
     "torch>=2.0.0",
 ]
+quality = [
+    "rouge-score>=0.1",
+]
 
 [project.scripts]
 quantbench = "quantbench.cli:main"

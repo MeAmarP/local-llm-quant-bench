@@ -49,6 +49,11 @@ class RunResult(BaseModel):
     peak_gpu_mem_mb: float | None = Field(default=None, ge=0)
     generated_text: str
     error: str | None = None
+    # Quality evaluation fields (populated when golden answers are provided)
+    quality_pass: bool | None = None
+    quality_score: float | None = Field(default=None, ge=0.0, le=1.0)
+    quality_method: str | None = None
+    quality_details: dict[str, Any] | None = None
     extra: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
