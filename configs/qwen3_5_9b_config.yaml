@@ -45,7 +45,7 @@ benchmark:
 # === GENERATION PARAMETERS ===
 # Token generation settings (must match benchmark.max_new_tokens and temperature)
 generation:
-  max_new_tokens: 512              # Match benchmark.max_new_tokens
+  max_new_tokens: 256              # Match benchmark.max_new_tokens
   temperature: 0.0                 # 0.0 = greedy, >0 = sampling
   top_p: 1.0                       # 1.0 = disabled, <1.0 = nucleus sampling
   do_sample: false
@@ -61,13 +61,15 @@ generation:
 #
 variants:
   # Baseline: Full precision reference (FP16/BF16)
-  qwen3_5_9b:
-    model_id: "Qwen/Qwen3.5-9B"
-    backend: transformers
-    quantization: baseline
-    quant_family: fp16_or_bf16
-    precision: fp16_or_bf16
-    notes: "Qwen3.5-9B multimodal baseline (9.6B parameters)"
+  # NOTE: Disabled - requires ~18GB VRAM but GPU only has 15.74GB.
+  # Re-enable only on GPUs with ≥20GB VRAM (e.g. A100, RTX 4090 24GB).
+  # qwen3_5_9b:
+  #   model_id: "Qwen/Qwen3.5-9B"
+  #   backend: transformers
+  #   quantization: baseline
+  #   quant_family: fp16_or_bf16
+  #   precision: fp16_or_bf16
+  #   notes: "Qwen3.5-9B multimodal baseline (9.6B parameters)"
 
   qwen3_5_9b_int8:
     model_id: "Qwen/Qwen3.5-9B"
@@ -140,10 +142,10 @@ experiment:
   
   # Hardware settings
   device: "cuda"                   # "auto", "cuda", "cuda:0", "cpu"
-  dtype: "auto"                    # "auto", "float32", "float16", "bfloat16"
+  dtype: "float16"                 # "auto" resolves to bfloat16 on Qwen; float16 required by bitsandbytes int8/int4
   
   # Execution parameters
-  repetitions: 3                   # Number of runs per (prompt, variant)
+  repetitions: 1                   # Number of runs per (prompt, variant) — use 3+ for production
   warmup_runs: 1                   # Dry runs before measuring (cache warming)
   measure_gpu_memory: true         # Capture peak GPU memory (requires nvidia-smi)
 

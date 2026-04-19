@@ -105,14 +105,13 @@ class TransformersRunner(BaseRunner):
 
         if self.load_in_8bit:
             try:
-                import bitsandbytes  # noqa: F401
+                from transformers import BitsAndBytesConfig as TF_BitsAndBytesConfig
             except ImportError as e:
-                logger.error("bitsandbytes is required for 8-bit quantization but is not installed")
                 raise ImportError(
-                    "bitsandbytes not installed; install with: "
-                    "pip install bitsandbytes"
+                    "bitsandbytes not installed; install with: pip install bitsandbytes"
                 ) from e
-            model_kwargs["load_in_8bit"] = True
+            bnb_config = TF_BitsAndBytesConfig(load_in_8bit=True)
+            model_kwargs["quantization_config"] = bnb_config
             model_kwargs["device_map"] = "auto"
             logger.info("Using 8-bit quantization (bitsandbytes)")
 
@@ -152,7 +151,7 @@ class TransformersRunner(BaseRunner):
         try:
             self.model = AutoModelForCausalLM.from_pretrained(
                 self.model_id,
-                torch_dtype=dtype,
+                dtype=dtype,
                 trust_remote_code=True,
                 **model_kwargs,
             )
@@ -192,7 +191,7 @@ class TransformersRunner(BaseRunner):
         import torch
 
         # Prepare metrics collection
-        metrics = MetricsHelper()
+        metrics = MetricsHelper(measure_gpu_memory=self.measure_gpu_memory)
         metrics.start()
 
         try:
@@ -210,15 +209,20 @@ class TransformersRunner(BaseRunner):
                 inputs = {k: v.to(device) for k, v in inputs.items()}
 
             # Generate
+            do_sample = self.generation_config.get("do_sample", False)
+            generate_kwargs = {
+                "max_new_tokens": self.generation_config.get("max_new_tokens", 128),
+                "do_sample": do_sample,
+                "repetition_penalty": self.generation_config.get("repetition_penalty", 1.0),
+                "pad_token_id": self.tokenizer.eos_token_id or self.tokenizer.vocab_size - 1,
+            }
+            # temperature and top_p are only valid when sampling
+            if do_sample:
+                generate_kwargs["temperature"] = self.generation_config.get("temperature", 1.0)
+                generate_kwargs["top_p"] = self.generation_config.get("top_p", 1.0)
+
             with torch.no_grad():
-                outputs = self.model.generate(
-                    **inputs,
-                    max_new_tokens=self.generation_config.get("max_new_tokens", 128),
-                    temperature=self.generation_config.get("temperature", 0.0),
-                    top_p=self.generation_config.get("top_p", 1.0),
-                    do_sample=self.generation_config.get("do_sample", False),
-                    repetition_penalty=self.generation_config.get("repetition_penalty", 1.0),
-                )
+                outputs = self.model.generate(**inputs, **generate_kwargs)
 
             # Decode output
             generated_text = self.tokenizer.decode(
@@ -230,14 +234,14 @@ class TransformersRunner(BaseRunner):
             generated_token_count = outputs.shape[1] - prompt_token_count
 
             # Capture metrics
-            metrics.capture()
-            latency_sec = metrics.elapsed_seconds()
-            tokens_per_sec = metrics.compute_tokens_per_sec(generated_token_count, latency_sec)
-
-            # GPU memory if available
-            peak_gpu_memory = None
-            if self.measure_gpu_memory and torch.cuda.is_available():
-                peak_gpu_memory = torch.cuda.max_memory_allocated() / (1024**2)  # MB
+            captured = metrics.capture(
+                prompt_text=prompt_case.prompt,
+                generated_text=generated_text,
+                generated_tokens=generated_token_count,
+            )
+            latency_sec = (captured["wall_clock_latency_ms"] or 1.0) / 1000.0
+            tokens_per_sec = captured["tokens_per_sec"]
+            peak_gpu_memory = captured["peak_gpu_memory_mb"]
 
             load_time_sec = None  # Not tracked separately for transformers
 

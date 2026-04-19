@@ -3,6 +3,7 @@
 import datetime as dt
 import json
 import logging
+import traceback
 from pathlib import Path
 from typing import Optional
 
@@ -111,6 +112,7 @@ class BenchmarkOrchestrator:
 
         try:
             if backend == "llamacpp":
+                _model_extra = model_spec.model_extra or {}
                 runner = LlamaCppRunner(
                     run_spec=None,  # Will be built per-batch
                     generation_config=generation_config.model_dump(),
@@ -122,6 +124,8 @@ class BenchmarkOrchestrator:
                     measure_gpu_memory=self.config.experiment_config.measure_gpu_memory
                     if self.config.experiment_config
                     else True,
+                    n_gpu_layers=_model_extra.get("n_gpu_layers"),
+                    n_ctx=_model_extra.get("n_ctx"),
                 )
                 logger.info(f"Initialized LlamaCppRunner for variant '{variant_id}'")
 
@@ -242,7 +246,8 @@ class BenchmarkOrchestrator:
                         except Exception as e:
                             logger.warning(
                                 f"Warmup {warmup_idx + 1}/{num_warmup} failed for "
-                                f"variant={variant_id}, prompt={prompt.id}: {e}"
+                                f"variant={variant_id}, prompt={prompt.id}: "
+                                f"{type(e).__name__}: {e}\n{traceback.format_exc()}"
                             )
 
                     # Timed repetitions (logged)
@@ -250,15 +255,17 @@ class BenchmarkOrchestrator:
                         try:
                             result = runner.run_case(prompt)
                             self.log_observation(variant_id, prompt.id, result)
+                            tps = f"{result.tokens_per_sec:.1f}" if result.tokens_per_sec is not None else "n/a"
                             logger.debug(
                                 f"✓ variant={variant_id}, prompt={prompt.id}, "
                                 f"rep={rep_idx + 1}/{num_repetitions}: "
-                                f"{result.output_tokens} tokens @ {result.tokens_per_sec:.1f} tok/s"
+                                f"{result.output_tokens} tokens @ {tps} tok/s"
                             )
                         except Exception as e:
                             logger.error(
                                 f"Failed to run variant='{variant_id}', prompt='{prompt.id}', "
-                                f"rep={rep_idx + 1}/{num_repetitions}: {e}"
+                                f"rep={rep_idx + 1}/{num_repetitions}: "
+                                f"{type(e).__name__}: {e}\n{traceback.format_exc()}"
                             )
 
                 runner.unload()
