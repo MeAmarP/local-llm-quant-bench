@@ -171,8 +171,8 @@ class LlamaCppServerRunner(BaseRunner):
             prompt_text=prompt_case.prompt,
             generated_text=raw_response.get("content", ""),
             generated_tokens=raw_response.get("tokens_predicted"),
-            ttft_ms=self._extract_ttft_ms(raw_response),
         )
+        ttft_ms = self._extract_ttft_ms(raw_response)
 
         timings = raw_response.get("timings") or {}
         tokens_per_sec = (
@@ -202,7 +202,7 @@ class LlamaCppServerRunner(BaseRunner):
             load_time_sec=self._load_time_sec,
             peak_gpu_mem_mb=None,  # not available via HTTP API
             generated_text=raw_response.get("content", ""),
-            ttft_ms=captured.get("ttft_ms"),
+            ttft_ms=ttft_ms,
         )
 
     # ------------------------------------------------------------------
