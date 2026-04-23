@@ -12,6 +12,7 @@ from .models import PromptCase, RunResult
 from .prompts import load_prompts
 from .runners.base import BaseRunner
 from .runners.llamacpp_runner import LlamaCppRunner
+from .runners.llamacpp_server_runner import LlamaCppServerRunner
 from .runners.transformers_runner import TransformersRunner
 from .utils.system_info import capture_system_info
 
@@ -149,6 +150,19 @@ class BenchmarkOrchestrator:
                     else True,
                 )
                 logger.info(f"Initialized TransformersRunner for variant '{variant_id}'")
+
+            elif backend == "llamacpp_server":
+                _model_extra = model_spec.model_extra or {}
+                runner = LlamaCppServerRunner(
+                    run_spec=None,
+                    generation_config=generation_config.model_dump(),
+                    model_path=model_spec.model_path,
+                    n_gpu_layers=_model_extra.get("n_gpu_layers"),
+                    n_ctx=_model_extra.get("n_ctx"),
+                    host=_model_extra.get("host", "127.0.0.1"),
+                    port=int(_model_extra.get("port", 8080)),
+                )
+                logger.info(f"Initialized LlamaCppServerRunner for variant '{variant_id}'")
 
             else:
                 logger.warning(f"Unsupported backend '{backend}' for variant '{variant_id}'")
