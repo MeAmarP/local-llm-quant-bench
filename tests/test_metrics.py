@@ -12,6 +12,10 @@ def test_supported_metrics_contains_phase1_fields() -> None:
         "output_tokens",
         "peak_gpu_memory_mb",
         "model_load_time_ms",
+        "ttft_ms",
+        "peak_ram_mb",
+        "avg_power_w",
+        "energy_per_token_j",
     ]
 
 
