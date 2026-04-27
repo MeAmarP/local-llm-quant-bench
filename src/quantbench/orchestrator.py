@@ -212,6 +212,7 @@ class BenchmarkOrchestrator:
             "avg_power_w": result.avg_power_w,
             "energy_per_token_j": result.energy_per_token_j,
             "notes": "",
+            "generated_text": result.generated_text or "",
         }
 
         # Quality scoring — run if scorer is available
