@@ -12,6 +12,10 @@ def test_supported_metrics_contains_phase1_fields() -> None:
         "output_tokens",
         "peak_gpu_memory_mb",
         "model_load_time_ms",
+        "ttft_ms",
+        "peak_ram_mb",
+        "avg_power_w",
+        "energy_per_token_j",
     ]
 
 
@@ -33,13 +37,13 @@ def test_compute_tokens_per_sec_variants() -> None:
 
 
 def test_capture_requires_start() -> None:
-    helper = MetricsHelper(measure_gpu_memory=False)
+    helper = MetricsHelper()
     with pytest.raises(RuntimeError):
         helper.capture(prompt_text="a", generated_text="b")
 
 
 def test_capture_uses_output_tokens_when_generated_tokens_missing() -> None:
-    helper = MetricsHelper(measure_gpu_memory=False)
+    helper = MetricsHelper()
     helper.start()
     payload = helper.capture(
         prompt_text="one two three",
@@ -62,15 +66,15 @@ class _EncodeTokenizer:
 
 
 def test_count_tokens_with_encode_tokenizer() -> None:
-    helper = MetricsHelper(tokenizer=_EncodeTokenizer(), measure_gpu_memory=False)
+    helper = MetricsHelper(tokenizer=_EncodeTokenizer())
     assert helper.count_tokens("hello world") == 3
 
 
 def test_count_tokens_with_callable_tokenizer_dict() -> None:
-    helper = MetricsHelper(tokenizer=lambda _: {"input_ids": [5, 6]}, measure_gpu_memory=False)
+    helper = MetricsHelper(tokenizer=lambda _: {"input_ids": [5, 6]})
     assert helper.count_tokens("anything") == 2
 
 
 def test_count_tokens_with_callable_tokenizer_list() -> None:
-    helper = MetricsHelper(tokenizer=lambda _: [9, 8, 7, 6], measure_gpu_memory=False)
+    helper = MetricsHelper(tokenizer=lambda _: [9, 8, 7, 6])
     assert helper.count_tokens("anything") == 4

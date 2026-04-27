@@ -96,7 +96,6 @@ class ExperimentConfig(BaseModel):
     dtype: str = "auto"
     repetitions: int = 3
     warmup_runs: int = 1
-    measure_gpu_memory: bool = True
 
     @field_validator("repetitions", "warmup_runs")
     @classmethod
@@ -155,6 +154,63 @@ class ConfigManager:
             raise ValueError(f"Model config for variant '{variant_id}' not found")
 
         return variant, model, self.generation_config
+
+    def load_from_dir(self, config_dir: str | Path) -> "ConfigManager":
+        """Load legacy multi-file configuration from a directory.
+
+        Expected files:
+        - benchmark.yaml
+        - models.yaml
+        - generation.yaml
+        - experiment.yaml
+        """
+        config_dir = Path(config_dir)
+        logger.info(f"Loading legacy config directory: {config_dir}")
+        if not config_dir.is_dir():
+            raise FileNotFoundError(
+                f"Config directory not found: {config_dir}\n"
+                "Provide a directory containing benchmark.yaml, models.yaml, generation.yaml, and experiment.yaml"
+            )
+
+        benchmark_data = self.load_yaml(config_dir / "benchmark.yaml")
+        models_data = self.load_yaml(config_dir / "models.yaml")
+        generation_data = self.load_yaml(config_dir / "generation.yaml")
+        experiment_data = self.load_yaml(config_dir / "experiment.yaml")
+
+        self.benchmark_config = BenchmarkConfig(**benchmark_data)
+        self.generation_config = GenerationConfig(**generation_data)
+        self.experiment_config = ExperimentConfig(**experiment_data)
+
+        if not isinstance(models_data, dict):
+            raise ValueError("models.yaml must contain a mapping of variant ids to model specs")
+
+        benchmark_variant_ids = {variant.variant_id for variant in self.benchmark_config.variants}
+        model_variant_ids = set(models_data.keys())
+
+        missing_in_models = sorted(benchmark_variant_ids - model_variant_ids)
+        if missing_in_models:
+            raise ValueError(
+                "Variant IDs missing in models.yaml: " + ", ".join(missing_in_models)
+            )
+
+        missing_in_benchmark = sorted(model_variant_ids - benchmark_variant_ids)
+        if missing_in_benchmark:
+            raise ValueError(
+                "Variant IDs missing in benchmark.yaml: " + ", ".join(missing_in_benchmark)
+            )
+
+        self.models_config = {}
+        for variant_id, model_spec in models_data.items():
+            if not isinstance(model_spec, dict):
+                raise ValueError(f"Model spec for variant '{variant_id}' must be a dict")
+            model_spec_copy = dict(model_spec)
+            model_spec_copy["variant_id"] = variant_id
+            self.models_config[variant_id] = ModelSpec(**model_spec_copy)
+
+        logger.info(
+            f"Loaded legacy config successfully: {len(self.models_config)} variant(s)"
+        )
+        return self
 
     def load_from_unified_file(self, config_path: str | Path) -> "ConfigManager":
         """Load unified config from a single YAML file.
@@ -270,25 +326,30 @@ class ConfigManager:
 
 
 def load_config(config_path: str | Path) -> ConfigManager:
-    """Load and validate benchmark configuration from a unified YAML file.
+    """Load and validate benchmark configuration from either format.
     
     Args:
-        config_path: Path to unified config.yaml file
+        config_path: Path to a unified config.yaml file or a legacy config directory
     
     Returns:
         ConfigManager instance with all configs loaded and validated
     
     Raises:
-        FileNotFoundError: If config file does not exist
+        FileNotFoundError: If config path does not exist
         ValueError: If validation fails
     """
     config_path = Path(config_path)
-    if not config_path.is_file():
-        raise FileNotFoundError(
-            f"Config file not found: {config_path}\n"
-            "Provide a path to a unified config YAML file (e.g. configs/config.yaml)"
-        )
     manager = ConfigManager()
-    manager.load_from_unified_file(config_path)
+
+    if config_path.is_dir():
+        manager.load_from_dir(config_path)
+    elif config_path.is_file():
+        manager.load_from_unified_file(config_path)
+    else:
+        raise FileNotFoundError(
+            f"Config path not found: {config_path}\n"
+            "Provide either a unified config YAML file (e.g. configs/config.yaml) or a legacy config directory"
+        )
+
     logger.info("Configuration loaded and validated")
     return manager

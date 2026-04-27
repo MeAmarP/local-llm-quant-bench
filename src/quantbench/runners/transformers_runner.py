@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from typing import Optional
 
 from ..metrics import MetricsHelper
@@ -10,6 +11,23 @@ from ..models import PromptCase, RunResult, RunSpec
 from .base import BaseRunner
 
 logger = logging.getLogger(__name__)
+
+
+class _FirstTokenTimer:
+    """LogitsProcessor-compatible hook that records time-to-first-token.
+
+    Passed via ``logits_processor`` in model.generate() to capture the
+    exact moment the first token's logits are computed.
+    """
+
+    def __init__(self, start: float) -> None:
+        self._start = start
+        self.ttft_ms: float | None = None
+
+    def __call__(self, input_ids, scores):  # type: ignore[override]
+        if self.ttft_ms is None:
+            self.ttft_ms = (time.perf_counter() - self._start) * 1000.0
+        return scores
 
 
 class TransformersRunner(BaseRunner):
@@ -26,7 +44,6 @@ class TransformersRunner(BaseRunner):
         load_in_8bit: bool = False,
         load_in_4bit: bool = False,
         bnb_4bit_compute_dtype: Optional[str] = None,
-        measure_gpu_memory: bool = True,
     ):
         """Initialize TransformersRunner.
 
@@ -40,7 +57,6 @@ class TransformersRunner(BaseRunner):
             load_in_8bit: Load model in 8-bit (requires bitsandbytes)
             load_in_4bit: Load model in 4-bit (requires bitsandbytes)
             bnb_4bit_compute_dtype: Compute dtype for 4-bit quantization
-            measure_gpu_memory: Track GPU memory usage
         """
         super().__init__(run_spec, generation_config=generation_config)
         self.model_id = model_id or model_path
@@ -50,7 +66,6 @@ class TransformersRunner(BaseRunner):
         self.load_in_8bit = load_in_8bit
         self.load_in_4bit = load_in_4bit
         self.bnb_4bit_compute_dtype = bnb_4bit_compute_dtype
-        self.measure_gpu_memory = measure_gpu_memory
 
         # Lazy-loaded Transformers components
         self.model = None
@@ -191,8 +206,10 @@ class TransformersRunner(BaseRunner):
         import torch
 
         # Prepare metrics collection
-        metrics = MetricsHelper(measure_gpu_memory=self.measure_gpu_memory)
+        metrics = MetricsHelper()
+        gen_start = time.perf_counter()
         metrics.start()
+        first_token_timer = _FirstTokenTimer(start=gen_start)
 
         try:
             # Tokenize prompt
@@ -221,6 +238,13 @@ class TransformersRunner(BaseRunner):
                 generate_kwargs["temperature"] = self.generation_config.get("temperature", 1.0)
                 generate_kwargs["top_p"] = self.generation_config.get("top_p", 1.0)
 
+            # Attach TTFT timer
+            try:
+                from transformers import LogitsProcessorList  # type: ignore[import]
+                generate_kwargs["logits_processor"] = LogitsProcessorList([first_token_timer])
+            except ImportError:
+                pass  # skip TTFT if LogitsProcessorList unavailable
+
             with torch.no_grad():
                 outputs = self.model.generate(**inputs, **generate_kwargs)
 
@@ -238,6 +262,7 @@ class TransformersRunner(BaseRunner):
                 prompt_text=prompt_case.prompt,
                 generated_text=generated_text,
                 generated_tokens=generated_token_count,
+                ttft_ms=first_token_timer.ttft_ms,
             )
             latency_sec = (captured["wall_clock_latency_ms"] or 1.0) / 1000.0
             tokens_per_sec = captured["tokens_per_sec"]
@@ -262,6 +287,10 @@ class TransformersRunner(BaseRunner):
                 load_time_sec=load_time_sec,
                 peak_gpu_mem_mb=peak_gpu_memory,
                 generated_text=generated_text,
+                ttft_ms=captured.get("ttft_ms"),
+                peak_ram_mb=captured.get("peak_ram_mb"),
+                avg_power_w=captured.get("avg_power_w"),
+                energy_per_token_j=captured.get("energy_per_token_j"),
             )
 
             return result
