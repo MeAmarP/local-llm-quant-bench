@@ -87,26 +87,77 @@ class _PowerSampler:
                 pass  # silently skip failed samples (no GPU, no nvidia-smi, etc.)
 
 
+class _GpuMemSampler:
+    """Sample GPU memory usage in a background thread via nvidia-smi.
+
+    Used by runners (e.g. LlamaCppServerRunner) where the model runs in a
+    subprocess and torch.cuda.max_memory_allocated() cannot track it.
+
+    Usage::
+
+        sampler = _GpuMemSampler(interval_s=0.2)
+        sampler.start()
+        ... # run inference
+        sampler.stop()
+        mb = sampler.peak_mb  # float | None
+    """
+
+    def __init__(self, interval_s: float = 0.2) -> None:
+        self._interval = interval_s
+        self._samples: list[float] = []
+        self._stop_event = threading.Event()
+        self._thread: threading.Thread | None = None
+
+    def start(self) -> None:
+        self._samples.clear()
+        self._stop_event.clear()
+        self._thread = threading.Thread(target=self._loop, daemon=True, name="GpuMemSampler")
+        self._thread.start()
+
+    def stop(self) -> None:
+        self._stop_event.set()
+        if self._thread is not None:
+            self._thread.join(timeout=2.0)
+
+    @property
+    def peak_mb(self) -> float | None:
+        return max(self._samples) if self._samples else None
+
+    def _loop(self) -> None:
+        while not self._stop_event.wait(self._interval):
+            try:
+                result = subprocess.run(
+                    ["nvidia-smi", "--query-gpu=memory.used", "--format=csv,noheader,nounits"],
+                    capture_output=True,
+                    text=True,
+                    timeout=1.0,
+                )
+                if result.returncode == 0:
+                    line = result.stdout.strip().splitlines()[0]
+                    self._samples.append(float(line.strip()))
+            except Exception:
+                pass  # silently skip failed samples (no GPU, no nvidia-smi, etc.)
+
+
 class MetricsHelper:
     """Compute/capture benchmark metrics for one generation call."""
 
     def __init__(
         self,
         tokenizer: Any | Callable[[str], Any] | None = None,
-        measure_gpu_memory: bool = True,
-        measure_ram: bool = False,
-        measure_power: bool = False,
+        use_smi_for_gpu_memory: bool = True,
+        target_pid: int | None = None,
     ) -> None:
         self.tokenizer = tokenizer
-        self.measure_gpu_memory = measure_gpu_memory
-        self.measure_ram = measure_ram
-        self.measure_power = measure_power
+        self.use_smi_for_gpu_memory = use_smi_for_gpu_memory
+        self.target_pid = target_pid
         self._step_start: float | None = None
         self._torch_module: Any | None = None
         self._torch_checked = False
         self._ram_start_mb: float | None = None
-        self._power_sampler: _PowerSampler | None = (
-            _PowerSampler() if measure_power else None
+        self._power_sampler: _PowerSampler = _PowerSampler()
+        self._gpu_mem_sampler: _GpuMemSampler | None = (
+            _GpuMemSampler() if use_smi_for_gpu_memory else None
         )
 
     def start(self) -> float:
@@ -117,10 +168,10 @@ class MetricsHelper:
         """
         self._step_start = time.perf_counter()
         self._reset_peak_gpu_memory()
-        if self.measure_ram:
-            self._ram_start_mb = self._get_process_rss_mb()
-        if self._power_sampler is not None:
-            self._power_sampler.start()
+        self._ram_start_mb = self._get_process_rss_mb()
+        self._power_sampler.start()
+        if self._gpu_mem_sampler is not None:
+            self._gpu_mem_sampler.start()
         return self._step_start
 
     def capture(
@@ -145,9 +196,10 @@ class MetricsHelper:
         if self._step_start is None:
             raise RuntimeError("MetricsHelper.start() must be called before capture().")
 
-        # Stop power sampler before measuring end time for accuracy
-        if self._power_sampler is not None:
-            self._power_sampler.stop()
+        # Stop samplers before measuring end time for accuracy
+        self._power_sampler.stop()
+        if self._gpu_mem_sampler is not None:
+            self._gpu_mem_sampler.stop()
 
         finish = end_time if end_time is not None else time.perf_counter()
         wall_clock_latency_ms = self.compute_wall_clock_latency_ms(self._step_start, finish)
@@ -163,9 +215,13 @@ class MetricsHelper:
             wall_clock_latency_ms=wall_clock_latency_ms,
         )
 
-        # Peak RAM delta since start()
+        # Peak RAM: absolute RSS of target subprocess, or delta for the current process
         peak_ram_mb: float | None = None
-        if self.measure_ram and self._ram_start_mb is not None:
+        if self.target_pid is not None:
+            # For subprocess-based runners the model is pre-loaded before run_case();
+            # report the absolute RSS of the server process as the RAM footprint.
+            peak_ram_mb = self._get_pid_rss_mb(self.target_pid)
+        elif self._ram_start_mb is not None:
             current_rss = self._get_process_rss_mb()
             if current_rss is not None:
                 peak_ram_mb = round(max(0.0, current_rss - self._ram_start_mb), 2)
@@ -173,10 +229,9 @@ class MetricsHelper:
         # Power and energy
         avg_power_w: float | None = None
         energy_per_token_j: float | None = None
-        if self._power_sampler is not None:
-            avg_power_w = self._power_sampler.mean_watts
-            if avg_power_w is not None and tokens_per_sec and tokens_per_sec > 0:
-                energy_per_token_j = round(avg_power_w / tokens_per_sec, 6)
+        avg_power_w = self._power_sampler.mean_watts
+        if avg_power_w is not None and tokens_per_sec and tokens_per_sec > 0:
+            energy_per_token_j = round(avg_power_w / tokens_per_sec, 6)
 
         return {
             "wall_clock_latency_ms": round(wall_clock_latency_ms, 4),
@@ -253,9 +308,13 @@ class MetricsHelper:
     def peak_gpu_memory_mb(self) -> float | None:
         """
         Return peak GPU memory in MB since last `start()`, when CUDA is available.
+
+        Uses nvidia-smi sampling when ``use_smi_for_gpu_memory=True`` (e.g. for
+        subprocess-based runners where torch cannot track GPU allocations).
+        Falls back to ``torch.cuda.max_memory_allocated()`` otherwise.
         """
-        if not self.measure_gpu_memory:
-            return None
+        if self._gpu_mem_sampler is not None:
+            return self._gpu_mem_sampler.peak_mb
         torch = self._get_torch()
         if torch is None or not torch.cuda.is_available():
             return None
@@ -267,8 +326,6 @@ class MetricsHelper:
             return None
 
     def _reset_peak_gpu_memory(self) -> None:
-        if not self.measure_gpu_memory:
-            return
         torch = self._get_torch()
         if torch is None or not torch.cuda.is_available():
             return
@@ -295,6 +352,15 @@ class MetricsHelper:
         try:
             import psutil  # type: ignore[import]
             return psutil.Process().memory_info().rss / (1024.0 * 1024.0)
+        except Exception:
+            return None
+
+    @staticmethod
+    def _get_pid_rss_mb(pid: int) -> float | None:
+        """Return RSS memory in MB for the given PID, or None if unavailable."""
+        try:
+            import psutil  # type: ignore[import]
+            return round(psutil.Process(pid).memory_info().rss / (1024.0 * 1024.0), 2)
         except Exception:
             return None
 
