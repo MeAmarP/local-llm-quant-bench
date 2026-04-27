@@ -249,14 +249,26 @@ gguf:
 
         summary = {
             "v1": {
+                "num_runs": 2,
                 "latency_ms": {"median": 100},
                 "tokens_per_sec": {"median": 50},
                 "peak_gpu_memory_mb": {"max": 1000},
+                "ttft_ms": None,
+                "peak_ram_mb": None,
+                "avg_power_w": None,
+                "energy_per_token_j": None,
+                "model_load_time_ms": None,
             },
             "v2": {
+                "num_runs": 2,
                 "latency_ms": {"median": 150},
                 "tokens_per_sec": {"median": 30},
                 "peak_gpu_memory_mb": {"max": 2000},
+                "ttft_ms": None,
+                "peak_ram_mb": None,
+                "avg_power_w": None,
+                "energy_per_token_j": None,
+                "model_load_time_ms": None,
             },
         }
 
