@@ -41,7 +41,6 @@ class LlamaCppRunner(BaseRunner):
         device: str = "auto",
         executable: Optional[str] = None,
         timeout_sec: float | None = None,
-        measure_gpu_memory: bool = False,
         n_gpu_layers: Optional[int] = None,
         n_ctx: Optional[int] = None,
     ) -> None:
@@ -54,7 +53,6 @@ class LlamaCppRunner(BaseRunner):
             device: Device selection ("auto", "cpu", "cuda"). Determines executable variant.
             executable: Explicit executable name. If provided, overrides device-based selection.
             timeout_sec: Timeout for subprocess execution in seconds
-            measure_gpu_memory: Track GPU memory usage (applicable for CUDA variant)
         """
         super().__init__(run_spec or RunSpec(name="llamacpp", backend="llamacpp", quantization="unknown"), generation_config=generation_config)
         
@@ -63,7 +61,7 @@ class LlamaCppRunner(BaseRunner):
         self.n_gpu_layers = n_gpu_layers
         self.n_ctx = n_ctx
         self.logger = get_logger(__name__)
-        self.metrics = MetricsHelper(measure_gpu_memory=measure_gpu_memory)
+        self.metrics = MetricsHelper()
         self._effective_generation = self._build_generation_config(self.generation_config)
 
         # Determine model path
@@ -207,11 +205,14 @@ class LlamaCppRunner(BaseRunner):
         load_time_ms = self._parse_model_load_time_ms(completed.stdout, completed.stderr)
         # Prefer the native t/s reported by llama.cpp over the wall-clock estimate
         native_tps = self._parse_generation_tps(completed.stdout)
+        # TTFT: llama.cpp logs "prompt eval time = X ms" which is the time to process the prompt
+        ttft_ms = self._parse_prompt_eval_time_ms(completed.stdout, completed.stderr)
         metrics = self.metrics.capture(
             prompt_text=prompt_text,
             generated_text=generated_text,
             generated_tokens=None,
             model_load_time_ms=load_time_ms,
+            ttft_ms=ttft_ms,
         )
         if native_tps is not None:
             metrics["tokens_per_sec"] = native_tps
@@ -239,6 +240,10 @@ class LlamaCppRunner(BaseRunner):
             peak_gpu_mem_mb=metrics["peak_gpu_memory_mb"],
             generated_text=generated_text,
             error=error,
+            ttft_ms=metrics.get("ttft_ms"),
+            peak_ram_mb=metrics.get("peak_ram_mb"),
+            avg_power_w=metrics.get("avg_power_w"),
+            energy_per_token_j=metrics.get("energy_per_token_j"),
             extra={
                 "command": cmd,
                 "returncode": completed.returncode,
@@ -312,6 +317,25 @@ class LlamaCppRunner(BaseRunner):
         combined = "\n".join([(stdout or ""), (stderr or "")])
         # Typical llama.cpp log snippet: "load time = 1234.56 ms"
         match = re.search(r"load\s+time\s*=\s*([0-9]+(?:\.[0-9]+)?)\s*ms", combined, flags=re.IGNORECASE)
+        if not match:
+            return None
+        try:
+            return float(match.group(1))
+        except ValueError:
+            return None
+
+    @staticmethod
+    def _parse_prompt_eval_time_ms(stdout: str | None, stderr: str | None) -> float | None:
+        """Parse prompt evaluation time (TTFT proxy) from llama.cpp timing logs.
+
+        e.g. "llama_print_timings: prompt eval time =  1234.56 ms /  16 tokens"
+        """
+        combined = "\n".join([(stdout or ""), (stderr or "")])
+        match = re.search(
+            r"prompt\s+eval\s+time\s*=\s*([0-9]+(?:\.[0-9]+)?)\s*ms",
+            combined,
+            flags=re.IGNORECASE,
+        )
         if not match:
             return None
         try:

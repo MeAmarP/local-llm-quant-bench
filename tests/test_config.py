@@ -92,7 +92,6 @@ device: auto
 dtype: auto
 repetitions: 3
 warmup_runs: 1
-measure_gpu_memory: true
 """)
 
         yield tmpdir
@@ -232,7 +231,6 @@ class TestExperimentConfig:
         )
         assert cfg.repetitions == 5
         assert cfg.warmup_runs == 2
-        assert cfg.measure_gpu_memory is True
 
     def test_invalid_repetitions(self):
         with pytest.raises(ValidationError):

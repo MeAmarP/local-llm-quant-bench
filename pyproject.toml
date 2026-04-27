@@ -47,6 +47,9 @@ transformers = [
 quality = [
     "rouge-score>=0.1",
 ]
+extended-metrics = [
+    "psutil>=5.9",
+]
 
 [project.scripts]
 quantbench = "quantbench.cli:main"
