@@ -112,6 +112,13 @@ def main() -> None:
         help="Log file path (default: ./quantbench.log)",
     )
 
+    parser.add_argument(
+        "--golden-answers",
+        type=Path,
+        default=None,
+        help="Path to golden_answers.jsonl for automated quality scoring",
+    )
+
     args = parser.parse_args()
 
     load_config, BenchmarkOrchestrator, load_prompts, setup_logging = _load_runtime_dependencies()
@@ -152,10 +159,16 @@ def main() -> None:
 
         # Run benchmark
         logger.info(f"Starting benchmark with {len(prompts)} prompts")
+
+        golden_answers_path = None
+        if args.golden_answers:
+            golden_answers_path = _resolve_path(args.golden_answers, config_path=args.config)
+
         orchestrator = BenchmarkOrchestrator(
             config_manager=config_manager,
             prompts=prompts,
             output_dir=output_dir,
+            golden_answers_path=golden_answers_path,
         )
 
         run_dir = orchestrator.run()

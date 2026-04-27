@@ -10,6 +10,7 @@ from typing import Optional
 from .config import ConfigManager, ExperimentConfig
 from .models import PromptCase, RunResult
 from .prompts import load_prompts
+from .quality.scorer import QualityScorer
 from .runners.base import BaseRunner
 from .runners.llamacpp_runner import LlamaCppRunner
 from .runners.llamacpp_server_runner import LlamaCppServerRunner
@@ -28,6 +29,7 @@ class BenchmarkOrchestrator:
         config_manager: ConfigManager,
         prompts: list[PromptCase],
         output_dir: str | Path = "results/runs",
+        golden_answers_path: str | Path | None = None,
     ):
         """Initialize orchestrator.
 
@@ -35,6 +37,7 @@ class BenchmarkOrchestrator:
             config_manager: Loaded ConfigManager with all config files
             prompts: List of prompts to benchmark
             output_dir: Root directory for run artifacts
+            golden_answers_path: Optional path to golden_answers.jsonl for quality scoring
         """
         self.config = config_manager
         self.prompts = prompts
@@ -42,6 +45,10 @@ class BenchmarkOrchestrator:
         self.run_dir: Optional[Path] = None
         self.runners: dict[str, BaseRunner] = {}
         self.observations: list[dict] = []
+        self._prompts_by_id: dict[str, PromptCase] = {p.id: p for p in prompts}
+        self.quality_scorer: QualityScorer | None = (
+            QualityScorer(golden_answers_path) if golden_answers_path else None
+        )
 
     def initialize_run(self) -> Path:
         """Create run directory with config and prompt snapshots.
@@ -205,7 +212,28 @@ class BenchmarkOrchestrator:
             "avg_power_w": result.avg_power_w,
             "energy_per_token_j": result.energy_per_token_j,
             "notes": "",
+            "generated_text": result.generated_text or "",
         }
+
+        # Quality scoring — run if scorer is available
+        if self.quality_scorer is not None:
+            prompt_case = self._prompts_by_id.get(prompt_id)
+            task = prompt_case.task if prompt_case else "unknown"
+            try:
+                quality = self.quality_scorer.score(
+                    prompt_id=prompt_id,
+                    task=task,
+                    generated_text=result.generated_text or "",
+                )
+                obs.update(quality)
+            except Exception as exc:
+                logger.warning(f"Quality scoring failed for {prompt_id}: {exc}")
+                obs.update({
+                    "quality_pass": None,
+                    "quality_score": None,
+                    "quality_method": "error",
+                    "quality_details": {"detail": str(exc)},
+                })
 
         obs_path = self.run_dir / "observations.jsonl"
         with obs_path.open("a", encoding="utf-8") as f:

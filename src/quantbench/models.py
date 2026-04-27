@@ -54,6 +54,11 @@ class RunResult(BaseModel):
     peak_ram_mb: float | None = Field(default=None, ge=0)
     avg_power_w: float | None = Field(default=None, ge=0)
     energy_per_token_j: float | None = Field(default=None, ge=0)
+    # Quality evaluation fields (populated when golden answers are provided)
+    quality_pass: bool | None = None
+    quality_score: float | None = Field(default=None, ge=0.0, le=1.0)
+    quality_method: str | None = None
+    quality_details: dict[str, Any] | None = None
     extra: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
