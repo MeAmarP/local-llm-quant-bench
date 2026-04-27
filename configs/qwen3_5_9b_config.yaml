@@ -90,7 +90,7 @@ variants:
     quantization: gguf_q4
     quant_family: gguf
     precision: q4
-    n_ctx: 2048                    # Context window size
+    n_ctx: 9000                    # Context window size
     n_gpu_layers: 35               # GPU layers (adjust based on VRAM)
     notes: "GGUF Q4_K_M quantization with llama.cpp"
 
@@ -137,7 +137,6 @@ experiment:
   # Execution parameters
   repetitions: 1                   # Number of runs per (prompt, variant) — use 3+ for production
   warmup_runs: 1                   # Dry runs before measuring (cache warming)
-  measure_gpu_memory: true         # Capture peak GPU memory (requires nvidia-smi)
 
 ###############################################################################
 # CONFIGURATION TIPS & TUNING GUIDE

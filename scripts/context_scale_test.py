@@ -36,6 +36,7 @@ from quantbench.config import load_config
 from quantbench.models import PromptCase, RunSpec
 from quantbench.prompts import load_prompts
 from quantbench.runners.llamacpp_runner import LlamaCppRunner
+from quantbench.runners.llamacpp_server_runner import LlamaCppServerRunner
 from quantbench.runners.transformers_runner import TransformersRunner
 
 # ---------------------------------------------------------------------------
@@ -96,6 +97,19 @@ def _make_runner(variant_id: str, config_path: Path):
             device=device,
             timeout_sec=600,
             measure_gpu_memory=exp.measure_gpu_memory if exp else True,
+            n_gpu_layers=_extra.get("n_gpu_layers"),
+            n_ctx=_extra.get("n_ctx"),
+        )
+    elif backend == "llamacpp_server":
+        runner = LlamaCppServerRunner(
+            run_spec=RunSpec(
+                name=variant_id,
+                backend=backend,
+                quantization=variant_spec.precision,
+                model_path=model_spec.model_path,
+            ),
+            generation_config=gen_dict,
+            model_path=model_spec.model_path,
             n_gpu_layers=_extra.get("n_gpu_layers"),
             n_ctx=_extra.get("n_ctx"),
         )
