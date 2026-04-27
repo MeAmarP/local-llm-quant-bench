@@ -96,9 +96,6 @@ class ExperimentConfig(BaseModel):
     dtype: str = "auto"
     repetitions: int = 3
     warmup_runs: int = 1
-    measure_gpu_memory: bool = True
-    measure_ram: bool = False
-    measure_power: bool = False
 
     @field_validator("repetitions", "warmup_runs")
     @classmethod

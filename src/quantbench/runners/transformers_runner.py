@@ -44,9 +44,6 @@ class TransformersRunner(BaseRunner):
         load_in_8bit: bool = False,
         load_in_4bit: bool = False,
         bnb_4bit_compute_dtype: Optional[str] = None,
-        measure_gpu_memory: bool = True,
-        measure_ram: bool = False,
-        measure_power: bool = False,
     ):
         """Initialize TransformersRunner.
 
@@ -60,9 +57,6 @@ class TransformersRunner(BaseRunner):
             load_in_8bit: Load model in 8-bit (requires bitsandbytes)
             load_in_4bit: Load model in 4-bit (requires bitsandbytes)
             bnb_4bit_compute_dtype: Compute dtype for 4-bit quantization
-            measure_gpu_memory: Track GPU memory usage
-            measure_ram: Track peak process RSS memory delta during inference
-            measure_power: Sample GPU wattage via nvidia-smi during inference
         """
         super().__init__(run_spec, generation_config=generation_config)
         self.model_id = model_id or model_path
@@ -72,9 +66,6 @@ class TransformersRunner(BaseRunner):
         self.load_in_8bit = load_in_8bit
         self.load_in_4bit = load_in_4bit
         self.bnb_4bit_compute_dtype = bnb_4bit_compute_dtype
-        self.measure_gpu_memory = measure_gpu_memory
-        self.measure_ram = measure_ram
-        self.measure_power = measure_power
 
         # Lazy-loaded Transformers components
         self.model = None
@@ -215,11 +206,7 @@ class TransformersRunner(BaseRunner):
         import torch
 
         # Prepare metrics collection
-        metrics = MetricsHelper(
-            measure_gpu_memory=self.measure_gpu_memory,
-            measure_ram=self.measure_ram,
-            measure_power=self.measure_power,
-        )
+        metrics = MetricsHelper()
         gen_start = time.perf_counter()
         metrics.start()
         first_token_timer = _FirstTokenTimer(start=gen_start)

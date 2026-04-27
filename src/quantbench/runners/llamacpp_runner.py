@@ -41,11 +41,8 @@ class LlamaCppRunner(BaseRunner):
         device: str = "auto",
         executable: Optional[str] = None,
         timeout_sec: float | None = None,
-        measure_gpu_memory: bool = False,
         n_gpu_layers: Optional[int] = None,
         n_ctx: Optional[int] = None,
-        measure_ram: bool = False,
-        measure_power: bool = False,
     ) -> None:
         """Initialize LlamaCppRunner.
         
@@ -56,9 +53,6 @@ class LlamaCppRunner(BaseRunner):
             device: Device selection ("auto", "cpu", "cuda"). Determines executable variant.
             executable: Explicit executable name. If provided, overrides device-based selection.
             timeout_sec: Timeout for subprocess execution in seconds
-            measure_gpu_memory: Track GPU memory usage (applicable for CUDA variant)
-            measure_ram: Track peak process RSS memory delta during inference
-            measure_power: Sample GPU wattage via nvidia-smi during inference
         """
         super().__init__(run_spec or RunSpec(name="llamacpp", backend="llamacpp", quantization="unknown"), generation_config=generation_config)
         
@@ -67,11 +61,7 @@ class LlamaCppRunner(BaseRunner):
         self.n_gpu_layers = n_gpu_layers
         self.n_ctx = n_ctx
         self.logger = get_logger(__name__)
-        self.metrics = MetricsHelper(
-            measure_gpu_memory=measure_gpu_memory,
-            measure_ram=measure_ram,
-            measure_power=measure_power,
-        )
+        self.metrics = MetricsHelper()
         self._effective_generation = self._build_generation_config(self.generation_config)
 
         # Determine model path

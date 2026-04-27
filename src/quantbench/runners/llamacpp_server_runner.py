@@ -162,7 +162,11 @@ class LlamaCppServerRunner(BaseRunner):
         payload = self._build_request_payload(prompt_case.prompt)
         url = f"http://{self.host}:{self.port}/completion"
 
-        metrics = MetricsHelper()
+        server_pid = self._process.pid if self._process is not None else None
+        metrics = MetricsHelper(
+            use_smi_for_gpu_memory=True,  # llama-server is a subprocess; torch cannot track it
+            target_pid=server_pid,  # track llama-server's own RSS, not quantbench's
+        )
         metrics.start()
 
         raw_response = self._post_json(url, payload)
@@ -200,9 +204,12 @@ class LlamaCppServerRunner(BaseRunner):
             latency_sec=latency_ms / 1000.0,
             tokens_per_sec=tokens_per_sec,
             load_time_sec=self._load_time_sec,
-            peak_gpu_mem_mb=None,  # not available via HTTP API
+            peak_gpu_mem_mb=captured.get("peak_gpu_memory_mb"),
             generated_text=raw_response.get("content", ""),
             ttft_ms=ttft_ms,
+            peak_ram_mb=captured.get("peak_ram_mb"),
+            avg_power_w=captured.get("avg_power_w"),
+            energy_per_token_j=captured.get("energy_per_token_j"),
         )
 
     # ------------------------------------------------------------------
