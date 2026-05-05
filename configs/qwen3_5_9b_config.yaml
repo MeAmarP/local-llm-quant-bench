@@ -1,13 +1,6 @@
 ###############################################################################
 # Unified Benchmark Configuration for local-llm-quant-bench
 #
-# This single YAML file consolidates all benchmark settings that were
-# previously spread across 4 separate files:
-#   - benchmark.yaml → benchmark section
-#   - models.yaml → variants section
-#   - generation.yaml → generation section
-#   - experiment.yaml → experiment section
-#
 # Usage: quantbench --config config.yaml
 ###############################################################################
 
@@ -18,9 +11,9 @@ project: local-llm-quant-bench
 # Fixed experimental parameters that must stay constant across all variants
 benchmark:
   # Model specification (MUST BE IDENTICAL across all tested variants)
-  model_family: "Qwen2.5-3B-Instruct"
+  model_family: "Qwen3.5-9B"
   instruction_variant: "Instruct"
-  hardware: "NVIDIA RTX 4090"
+  hardware: "NVIDIA RTX"
   framework_versions: "torch==2.1.0; transformers==4.36.0; llama-cpp-python==0.2.28"
   
   # Generation constraints (MUST STAY the same across all variants)
@@ -62,7 +55,6 @@ generation:
 variants:
   # Baseline: Full precision reference (FP16/BF16)
   # NOTE: Disabled - requires ~18GB VRAM but GPU only has 15.74GB.
-  # Re-enable only on GPUs with ≥20GB VRAM (e.g. A100, RTX 4090 24GB).
   # qwen3_5_9b:
   #   model_id: "Qwen/Qwen3.5-9B"
   #   backend: transformers
@@ -71,36 +63,34 @@ variants:
   #   precision: fp16_or_bf16
   #   notes: "Qwen3.5-9B multimodal baseline (9.6B parameters)"
 
-  qwen3_5_9b_int8:
-    model_id: "Qwen/Qwen3.5-9B"
-    backend: transformers
-    quantization: bitsandbytes_int8
-    quant_family: bitsandbytes
-    precision: int8
-    load_in_8bit: true
-    notes: "Qwen3.5-9B with 8-bit quantization"
+  # qwen3_5_9b_int8:
+  #   model_id: "Qwen/Qwen3.5-9B"
+  #   backend: transformers
+  #   quantization: bitsandbytes_int8
+  #   quant_family: bitsandbytes
+  #   precision: int8
+  #   load_in_8bit: true
+  #   notes: "Qwen3.5-9B with 8-bit quantization"
 
-  qwen3_5_9b_int4:
-    model_id: "Qwen/Qwen3.5-9B"
-    backend: transformers
-    quantization: bitsandbytes_int4
-    quant_family: bitsandbytes
-    precision: int4
-    load_in_4bit: true
-    bnb_4bit_compute_dtype: float16
-    notes: "Qwen3.5-9B with 4-bit quantization"
+  # qwen3_5_9b_int4:
+  #   model_id: "Qwen/Qwen3.5-9B"
+  #   backend: transformers
+  #   quantization: bitsandbytes_int4
+  #   quant_family: bitsandbytes
+  #   precision: int4
+  #   load_in_4bit: true
+  #   bnb_4bit_compute_dtype: float16
+  #   notes: "Qwen3.5-9B with 4-bit quantization"
 
   # GGUF: Quantized with llama.cpp
   # Note: Requires downloading GGUF model file first:
-  #   huggingface-cli download username/model-name-gguf \
-  #     model-q4_k_m.gguf --local-dir models/gguf/
   gguf_q4:
-    model_path: "/home/mighty/Documents/workspace/local-llm-quant-bench/models/gguf/Qwen3.5-9B-Q4_K_M.gguf"
-    backend: llamacpp
+    model_path: "models/gguf/Qwen3.5-9B-Q4_K_M.gguf"
+    backend: llamacpp_server
     quantization: gguf_q4
     quant_family: gguf
     precision: q4
-    n_ctx: 2048                    # Context window size
+    n_ctx: 9000                    # Context window size
     n_gpu_layers: 35               # GPU layers (adjust based on VRAM)
     notes: "GGUF Q4_K_M quantization with llama.cpp"
 
@@ -147,7 +137,6 @@ experiment:
   # Execution parameters
   repetitions: 1                   # Number of runs per (prompt, variant) — use 3+ for production
   warmup_runs: 1                   # Dry runs before measuring (cache warming)
-  measure_gpu_memory: true         # Capture peak GPU memory (requires nvidia-smi)
 
 ###############################################################################
 # CONFIGURATION TIPS & TUNING GUIDE

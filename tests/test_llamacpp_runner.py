@@ -152,8 +152,8 @@ def test_run_case_handles_missing_executable(monkeypatch: pytest.MonkeyPatch) ->
 
 def test_executable_exists_returns_true_for_python(monkeypatch: pytest.MonkeyPatch) -> None:
     """Test that _executable_exists returns True for a common binary."""
-    # Python should always be in PATH
-    assert LlamaCppRunner._executable_exists("python") is True
+    # python3 is reliably present even in virtualenvs where 'python' may not be
+    assert LlamaCppRunner._executable_exists("python3") is True
 
 
 def test_executable_exists_returns_false_for_nonexistent() -> None:

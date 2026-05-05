@@ -10,8 +10,10 @@ from typing import Optional
 from .config import ConfigManager, ExperimentConfig
 from .models import PromptCase, RunResult
 from .prompts import load_prompts
+from .quality.scorer import QualityScorer
 from .runners.base import BaseRunner
 from .runners.llamacpp_runner import LlamaCppRunner
+from .runners.llamacpp_server_runner import LlamaCppServerRunner
 from .runners.transformers_runner import TransformersRunner
 from .utils.system_info import capture_system_info
 
@@ -27,6 +29,7 @@ class BenchmarkOrchestrator:
         config_manager: ConfigManager,
         prompts: list[PromptCase],
         output_dir: str | Path = "results/runs",
+        golden_answers_path: str | Path | None = None,
     ):
         """Initialize orchestrator.
 
@@ -34,6 +37,7 @@ class BenchmarkOrchestrator:
             config_manager: Loaded ConfigManager with all config files
             prompts: List of prompts to benchmark
             output_dir: Root directory for run artifacts
+            golden_answers_path: Optional path to golden_answers.jsonl for quality scoring
         """
         self.config = config_manager
         self.prompts = prompts
@@ -41,6 +45,10 @@ class BenchmarkOrchestrator:
         self.run_dir: Optional[Path] = None
         self.runners: dict[str, BaseRunner] = {}
         self.observations: list[dict] = []
+        self._prompts_by_id: dict[str, PromptCase] = {p.id: p for p in prompts}
+        self.quality_scorer: QualityScorer | None = (
+            QualityScorer(golden_answers_path) if golden_answers_path else None
+        )
 
     def initialize_run(self) -> Path:
         """Create run directory with config and prompt snapshots.
@@ -121,9 +129,6 @@ class BenchmarkOrchestrator:
                     if self.config.experiment_config
                     else "auto",
                     timeout_sec=300,
-                    measure_gpu_memory=self.config.experiment_config.measure_gpu_memory
-                    if self.config.experiment_config
-                    else True,
                     n_gpu_layers=_model_extra.get("n_gpu_layers"),
                     n_ctx=_model_extra.get("n_ctx"),
                 )
@@ -144,11 +149,21 @@ class BenchmarkOrchestrator:
                     load_in_8bit=model_spec.load_in_8bit,
                     load_in_4bit=model_spec.load_in_4bit,
                     bnb_4bit_compute_dtype=model_spec.bnb_4bit_compute_dtype,
-                    measure_gpu_memory=self.config.experiment_config.measure_gpu_memory
-                    if self.config.experiment_config
-                    else True,
                 )
                 logger.info(f"Initialized TransformersRunner for variant '{variant_id}'")
+
+            elif backend == "llamacpp_server":
+                _model_extra = model_spec.model_extra or {}
+                runner = LlamaCppServerRunner(
+                    run_spec=None,
+                    generation_config=generation_config.model_dump(),
+                    model_path=model_spec.model_path,
+                    n_gpu_layers=_model_extra.get("n_gpu_layers"),
+                    n_ctx=_model_extra.get("n_ctx"),
+                    host=_model_extra.get("host", "127.0.0.1"),
+                    port=int(_model_extra.get("port", 8080)),
+                )
+                logger.info(f"Initialized LlamaCppServerRunner for variant '{variant_id}'")
 
             else:
                 logger.warning(f"Unsupported backend '{backend}' for variant '{variant_id}'")
@@ -191,8 +206,34 @@ class BenchmarkOrchestrator:
             "output_tokens": result.output_tokens,
             "peak_gpu_memory_mb": result.peak_gpu_mem_mb,
             "model_load_time_ms": (result.load_time_sec * 1000) if result.load_time_sec else 0,
+            # Extended metrics
+            "ttft_ms": result.ttft_ms,
+            "peak_ram_mb": result.peak_ram_mb,
+            "avg_power_w": result.avg_power_w,
+            "energy_per_token_j": result.energy_per_token_j,
             "notes": "",
+            "generated_text": result.generated_text or "",
         }
+
+        # Quality scoring — run if scorer is available
+        if self.quality_scorer is not None:
+            prompt_case = self._prompts_by_id.get(prompt_id)
+            task = prompt_case.task if prompt_case else "unknown"
+            try:
+                quality = self.quality_scorer.score(
+                    prompt_id=prompt_id,
+                    task=task,
+                    generated_text=result.generated_text or "",
+                )
+                obs.update(quality)
+            except Exception as exc:
+                logger.warning(f"Quality scoring failed for {prompt_id}: {exc}")
+                obs.update({
+                    "quality_pass": None,
+                    "quality_score": None,
+                    "quality_method": "error",
+                    "quality_details": {"detail": str(exc)},
+                })
 
         obs_path = self.run_dir / "observations.jsonl"
         with obs_path.open("a", encoding="utf-8") as f:
@@ -237,7 +278,12 @@ class BenchmarkOrchestrator:
 
             try:
                 runner.load()
+            except Exception as e:
+                logger.error(f"Failed to load runner for variant '{variant_id}': {e}")
+                failed_variants.append(variant_id)
+                continue
 
+            try:
                 for prompt in self.prompts:
                     # Warmup runs (not logged)
                     for warmup_idx in range(num_warmup):
@@ -268,14 +314,14 @@ class BenchmarkOrchestrator:
                                 f"{type(e).__name__}: {e}\n{traceback.format_exc()}"
                             )
 
-                runner.unload()
-                logger.info(f"Completed variant: {variant_id}")
-
             except Exception as e:
                 logger.error(f"Unexpected error in variant '{variant_id}': {e}")
                 failed_variants.append(variant_id)
+
+            finally:
                 try:
                     runner.unload()
+                    logger.info(f"Completed variant: {variant_id}")
                 except Exception as unload_err:
                     logger.warning(f"Failed to unload runner for '{variant_id}': {unload_err}")
 
@@ -344,6 +390,11 @@ class BenchmarkOrchestrator:
             latencies = [o["wall_clock_latency_ms"] for o in obs_list]
             throughputs = [o["tokens_per_sec"] for o in obs_list if o["tokens_per_sec"] > 0]
             memories = [o["peak_gpu_memory_mb"] for o in obs_list if o["peak_gpu_memory_mb"]]
+            load_times = [o["model_load_time_ms"] for o in obs_list if o.get("model_load_time_ms")]
+            ttfts = [o["ttft_ms"] for o in obs_list if o.get("ttft_ms") is not None]
+            ram_samples = [o["peak_ram_mb"] for o in obs_list if o.get("peak_ram_mb") is not None]
+            power_samples = [o["avg_power_w"] for o in obs_list if o.get("avg_power_w") is not None]
+            energy_samples = [o["energy_per_token_j"] for o in obs_list if o.get("energy_per_token_j") is not None]
 
             summary[variant_id] = {
                 "num_runs": len(obs_list),
@@ -367,6 +418,18 @@ class BenchmarkOrchestrator:
                 }
                 if memories
                 else None,
+                "ttft_ms": {
+                    "median": median(ttfts),
+                    "mean": mean(ttfts),
+                    "min": min(ttfts),
+                    "max": max(ttfts),
+                }
+                if ttfts
+                else None,
+                "peak_ram_mb": {"mean": mean(ram_samples), "max": max(ram_samples)} if ram_samples else None,
+                "avg_power_w": {"mean": mean(power_samples)} if power_samples else None,
+                "energy_per_token_j": {"mean": mean(energy_samples)} if energy_samples else None,
+                "model_load_time_ms": {"mean": mean(load_times), "min": min(load_times), "max": max(load_times)} if load_times else None,
             }
 
         return summary
@@ -386,17 +449,24 @@ class BenchmarkOrchestrator:
             lines.append("No results to summarize.\n")
             return "\n".join(lines)
 
-        lines.append("| Variant | Latency (ms) | Throughput (tok/s) | Peak GPU Mem (MB) |")
-        lines.append("|---------|--------------|-------------------|------------------|")
+        lines.append("| Variant | Runs | Load Time (ms) | Latency (ms) | Throughput (tok/s) | Peak GPU Mem (MB) | TTFT (ms) | Peak RAM (MB) | Avg Power (W) | Energy/Token (J) |")
+        lines.append("|---------|------|----------------|--------------|-------------------|------------------|-----------|---------------|---------------|-----------------|")
 
         for variant_id in sorted(summary.keys()):
             stats = summary[variant_id]
+            num_runs = stats["num_runs"]
+            load_time = f"{stats['model_load_time_ms']['mean']:.0f}" if stats.get("model_load_time_ms") else "N/A"
             latency_median = stats["latency_ms"]["median"]
             throughput_median = stats["tokens_per_sec"]["median"]
-            memory_max = stats["peak_gpu_memory_mb"]["max"] if stats["peak_gpu_memory_mb"] else "N/A"
+            memory_max = f"{stats['peak_gpu_memory_mb']['max']:.1f}" if stats["peak_gpu_memory_mb"] else "N/A"
+            ttft_median = f"{stats['ttft_ms']['median']:.1f}" if stats.get("ttft_ms") else "N/A"
+            peak_ram = f"{stats['peak_ram_mb']['max']:.1f}" if stats.get("peak_ram_mb") else "N/A"
+            avg_power = f"{stats['avg_power_w']['mean']:.1f}" if stats.get("avg_power_w") else "N/A"
+            energy = f"{stats['energy_per_token_j']['mean']:.6f}" if stats.get("energy_per_token_j") else "N/A"
 
             lines.append(
-                f"| {variant_id} | {latency_median:.1f} | {throughput_median:.1f} | {memory_max} |"
+                f"| {variant_id} | {num_runs} | {load_time} | {latency_median:.1f} | {throughput_median:.1f} | {memory_max} "
+                f"| {ttft_median} | {peak_ram} | {avg_power} | {energy} |"
             )
 
         return "\n".join(lines) + "\n"
