@@ -115,6 +115,7 @@ def main() -> None:
 
     try:
         # Load configuration
+        logger.info("Lets Begin quantbench!!!")
         logger.info(f"Loading configuration from: {args.config}")
         config_manager = load_config(args.config)
         logger.info("Configuration loaded successfully")
