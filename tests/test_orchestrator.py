@@ -8,36 +8,34 @@ from src.quantbench.config import load_config
 from src.quantbench.models import PromptCase, RunResult
 from src.quantbench.orchestrator import BenchmarkOrchestrator
 
+_MINIMAL_CONFIG_YAML = """
+project: test
+benchmark:
+  model_family: "test-model"
+generation:
+  max_new_tokens: 128
+variants:
+  test_variant:
+    model_id: test/model
+    backend: transformers
+    quantization: test
+    quant_family: test
+    precision: test
+experiment:
+  prompt_file: p.jsonl
+  output_dir: r/
+  repetitions: 1
+  warmup_runs: 1
+"""
+
 
 @pytest.fixture
 def config_manager():
-    """Create a test config manager with valid config."""
+    """Create a test config manager with valid unified config."""
     with tempfile.TemporaryDirectory() as tmpdir:
-        tmpdir = Path(tmpdir)
-
-        # Create minimal valid configs
-        (tmpdir / "benchmark.yaml").write_text("""
-project: test
-variants:
-  - variant_id: test_variant
-    quant_family: test
-    precision: test
-    backend: transformers
-""")
-
-        (tmpdir / "models.yaml").write_text("""
-test_variant:
-  model_id: test/model
-  backend: transformers
-  quantization: test
-""")
-
-        (tmpdir / "generation.yaml").write_text("max_new_tokens: 128")
-        (tmpdir / "experiment.yaml").write_text(
-            "prompt_file: p.jsonl\noutput_dir: r/\nrepetitions: 1\nwarmup_runs: 1"
-        )
-
-        yield load_config(tmpdir)
+        config_file = Path(tmpdir) / "config.yaml"
+        config_file.write_text(_MINIMAL_CONFIG_YAML)
+        yield load_config(config_file)
 
 
 @pytest.fixture
@@ -108,29 +106,28 @@ class TestBenchmarkOrchestrator:
     def test_get_runner_llamacpp(self, config_manager, prompts, temp_output_dir):
         # Modify config to use llamacpp backend
         with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            (tmpdir / "benchmark.yaml").write_text("""
+            config_file = Path(tmpdir) / "config.yaml"
+            config_file.write_text("""
 project: test
+benchmark:
+  model_family: "test-model"
+generation:
+  max_new_tokens: 128
 variants:
-  - variant_id: gguf
+  gguf:
+    model_path: models/test.gguf
+    backend: llamacpp
+    quantization: gguf_q4
     quant_family: gguf
     precision: q4
-    backend: llamacpp
+experiment:
+  prompt_file: p.jsonl
+  output_dir: r/
+  repetitions: 1
+  warmup_runs: 1
 """)
 
-            (tmpdir / "models.yaml").write_text("""
-gguf:
-  model_path: models/test.gguf
-  backend: llamacpp
-  quantization: gguf_q4
-""")
-
-            (tmpdir / "generation.yaml").write_text("max_new_tokens: 128")
-            (tmpdir / "experiment.yaml").write_text(
-                "prompt_file: p.jsonl\noutput_dir: r/\nrepetitions: 1\nwarmup_runs: 1"
-            )
-
-            config = load_config(tmpdir)
+            config = load_config(config_file)
             orchestrator = BenchmarkOrchestrator(config, prompts, temp_output_dir)
 
             with patch("src.quantbench.orchestrator.LlamaCppRunner") as mock_runner_class:

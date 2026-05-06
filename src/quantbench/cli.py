@@ -142,7 +142,7 @@ def main() -> None:
         prompts_path = args.prompts or configured_prompt_path or Path("prompts/prompts.jsonl")
 
         if not prompts_path:
-            parser.error("No prompts file specified; provide --prompts or check experiment.yaml")
+            parser.error("No prompts file specified; provide --prompts or set prompt_file in config")
 
         prompts_path = _resolve_path(prompts_path, config_path=args.config)
         logger.info(f"Loading prompts from: {prompts_path}")

@@ -40,20 +40,16 @@ class VariantSpec(BaseModel):
 
 
 class BenchmarkConfig(BaseModel):
-    """Phase 1 benchmark constraints and variant definitions (benchmark.yaml)."""
+    """Benchmark metadata and variant definitions from the unified config file."""
+
+    model_config = ConfigDict(extra="allow")
 
     project: str
-
-    fixed: dict[str, Any] = Field(
-        default_factory=dict,
-        description="Fixed constraints (model_family, instruction_variant, hardware, framework_versions, generation params)"
-    )
 
     variants: list[VariantSpec] = Field(
         default_factory=list,
         description="List of quantization variants to measure"
     )
-
 
     @field_validator("variants")
     @classmethod
@@ -155,164 +151,85 @@ class ConfigManager:
 
         return variant, model, self.generation_config
 
-    def load_from_dir(self, config_dir: str | Path) -> "ConfigManager":
-        """Load legacy multi-file configuration from a directory.
-
-        Expected files:
-        - benchmark.yaml
-        - models.yaml
-        - generation.yaml
-        - experiment.yaml
-        """
-        config_dir = Path(config_dir)
-        logger.info(f"Loading legacy config directory: {config_dir}")
-        if not config_dir.is_dir():
-            raise FileNotFoundError(
-                f"Config directory not found: {config_dir}\n"
-                "Provide a directory containing benchmark.yaml, models.yaml, generation.yaml, and experiment.yaml"
-            )
-
-        benchmark_data = self.load_yaml(config_dir / "benchmark.yaml")
-        models_data = self.load_yaml(config_dir / "models.yaml")
-        generation_data = self.load_yaml(config_dir / "generation.yaml")
-        experiment_data = self.load_yaml(config_dir / "experiment.yaml")
-
-        self.benchmark_config = BenchmarkConfig(**benchmark_data)
-        self.generation_config = GenerationConfig(**generation_data)
-        self.experiment_config = ExperimentConfig(**experiment_data)
-
-        if not isinstance(models_data, dict):
-            raise ValueError("models.yaml must contain a mapping of variant ids to model specs")
-
-        benchmark_variant_ids = {variant.variant_id for variant in self.benchmark_config.variants}
-        model_variant_ids = set(models_data.keys())
-
-        missing_in_models = sorted(benchmark_variant_ids - model_variant_ids)
-        if missing_in_models:
-            raise ValueError(
-                "Variant IDs missing in models.yaml: " + ", ".join(missing_in_models)
-            )
-
-        missing_in_benchmark = sorted(model_variant_ids - benchmark_variant_ids)
-        if missing_in_benchmark:
-            raise ValueError(
-                "Variant IDs missing in benchmark.yaml: " + ", ".join(missing_in_benchmark)
-            )
-
-        self.models_config = {}
-        for variant_id, model_spec in models_data.items():
-            if not isinstance(model_spec, dict):
-                raise ValueError(f"Model spec for variant '{variant_id}' must be a dict")
-            model_spec_copy = dict(model_spec)
-            model_spec_copy["variant_id"] = variant_id
-            self.models_config[variant_id] = ModelSpec(**model_spec_copy)
-
-        logger.info(
-            f"Loaded legacy config successfully: {len(self.models_config)} variant(s)"
-        )
-        return self
-
     def load_from_unified_file(self, config_path: str | Path) -> "ConfigManager":
         """Load unified config from a single YAML file.
-        
-        Unified file format:
+
+        Expected format:
         ```yaml
-        project: local-llm-quant-bench        
+        project: local-llm-quant-bench
         benchmark:
           model_family: "Qwen2.5-3B-Instruct"
-          instruction_variant: "Instruct"
-          hardware: "NVIDIA RTX 4090"
-          # ... other fixed params ...
           max_new_tokens: 256
-          stop_conditions: [...]
           metrics: [...]
-        
         generation:
           max_new_tokens: 256
           temperature: 0.0
-          # ... other generation params ...
-        
         variants:
           baseline:
             model_id: "..."
             backend: "transformers"
-            # ...
-          int8:
-            # ...
-        
+          gguf_q4:
+            model_path: "..."
+            backend: "llamacpp"
         experiment:
           prompt_file: "prompts/prompts.jsonl"
           output_dir: "results/runs"
-          # ...
         ```
-        
+
         Args:
-            config_path: Path to unified config.yaml file
-        
+            config_path: Path to unified config YAML file
+
         Returns:
             self (for chaining)
-        
+
         Raises:
             FileNotFoundError: If config file doesn't exist
             ValueError: If validation fails
         """
         config_path = Path(config_path)
-        logger.info(f"Loading unified config file: {config_path}")
+        logger.info(f"Loading config file: {config_path}")
         data = self.load_yaml(config_path)
-        
-        # Extract top-level metadata
+
         project = data.get("project", "local-llm-quant-bench")
-            
-        
-        # Extract benchmark config
+
         benchmark_data = data.get("benchmark", {})
         benchmark_data["project"] = project
-        
-        # Extract variants from the unified format
+
         variants_data = data.get("variants", {})
         if not isinstance(variants_data, dict):
-            raise ValueError("'variants' must be a dictionary in unified config file")
-        
+            raise ValueError("'variants' must be a dictionary in config file")
+
         benchmark_data["variants"] = []
         self.models_config = {}
-        
-        # Process each variant
+
         for variant_id, variant_spec in variants_data.items():
             if not isinstance(variant_spec, dict):
                 raise ValueError(f"Variant '{variant_id}' must be a dict")
-            
-            # Extract variant-level metadata for BenchmarkConfig.variants list
+
             variant_spec_copy = dict(variant_spec)
             variant_spec_copy["variant_id"] = variant_id
-            variant_spec_copy.setdefault("quant_family", variant_spec.get("quant_family", "unknown"))
-            variant_spec_copy.setdefault("precision", variant_spec.get("precision", "unknown"))
-            variant_spec_copy.setdefault("backend", variant_spec.get("backend", "unknown"))
-            
+            variant_spec_copy.setdefault("quant_family", "unknown")
+            variant_spec_copy.setdefault("precision", "unknown")
+            variant_spec_copy.setdefault("backend", "unknown")
+
             benchmark_data["variants"].append(VariantSpec(**variant_spec_copy))
-            
-            # Build ModelSpec for this variant
+
             model_spec_copy = dict(variant_spec)
             model_spec_copy["variant_id"] = variant_id
             self.models_config[variant_id] = ModelSpec(**model_spec_copy)
-        
-        # Validate we have at least one variant
+
         if not benchmark_data["variants"]:
             raise ValueError("At least one variant must be specified in 'variants' section")
-        
-        # Create BenchmarkConfig
+
         self.benchmark_config = BenchmarkConfig(**benchmark_data)
-        
-        # Load generation config (optional; uses defaults)
+
         generation_data = data.get("generation", {})
         self.generation_config = GenerationConfig(**generation_data)
-        
-        # Load experiment config
+
         experiment_data = data.get("experiment", {})
         self.experiment_config = ExperimentConfig(**experiment_data)
-        logger.info(
-            f"Loaded unified config successfully: {len(self.models_config)} variant(s)"
-        )
-        
+
+        logger.info(f"Loaded config successfully: {len(self.models_config)} variant(s)")
         return self
 
     def to_dict(self) -> dict[str, Any]:
@@ -326,30 +243,27 @@ class ConfigManager:
 
 
 def load_config(config_path: str | Path) -> ConfigManager:
-    """Load and validate benchmark configuration from either format.
-    
+    """Load and validate benchmark configuration from a unified config YAML file.
+
     Args:
-        config_path: Path to a unified config.yaml file or a legacy config directory
-    
+        config_path: Path to a unified config YAML file (e.g. configs/config.yaml)
+
     Returns:
         ConfigManager instance with all configs loaded and validated
-    
+
     Raises:
-        FileNotFoundError: If config path does not exist
+        FileNotFoundError: If config file does not exist
         ValueError: If validation fails
     """
     config_path = Path(config_path)
     manager = ConfigManager()
 
-    if config_path.is_dir():
-        manager.load_from_dir(config_path)
-    elif config_path.is_file():
-        manager.load_from_unified_file(config_path)
-    else:
+    if not config_path.is_file():
         raise FileNotFoundError(
-            f"Config path not found: {config_path}\n"
-            "Provide either a unified config YAML file (e.g. configs/config.yaml) or a legacy config directory"
+            f"Config file not found: {config_path}\n"
+            "Provide a unified config YAML file (e.g. configs/config.yaml)"
         )
 
+    manager.load_from_unified_file(config_path)
     logger.info("Configuration loaded and validated")
     return manager

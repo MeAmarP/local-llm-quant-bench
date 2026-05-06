@@ -1,7 +1,0 @@
-prompt_file: "prompts/prompts.jsonl"
-output_dir: "results/raw"
-device: "auto"
-dtype: "auto"
-repetitions: 3
-warmup_runs: 1
-measure_gpu_memory: true

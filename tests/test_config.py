@@ -15,19 +15,10 @@ from src.quantbench.config import (
     load_config,
 )
 
-
-@pytest.fixture
-def temp_config_dir():
-    """Create a temporary directory with valid config files."""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        tmpdir = Path(tmpdir)
-
-        # benchmark.yaml
-        benchmark_yaml = tmpdir / "benchmark.yaml"
-        benchmark_yaml.write_text("""
+UNIFIED_CONFIG_YAML = """
 project: test-benchmark
 
-fixed:
+benchmark:
   model_family: "Qwen2.5-3B"
   instruction_variant: "Instruct"
   hardware: "RTX 3090"
@@ -35,66 +26,54 @@ fixed:
   temperature: 0.0
   do_sample: false
 
+generation:
+  max_new_tokens: 128
+  temperature: 0.0
+  top_p: 1.0
+  do_sample: false
+  repetition_penalty: 1.0
+
 variants:
-  - variant_id: baseline
+  baseline:
+    model_id: "Qwen/Qwen2.5-3B-Instruct"
+    backend: transformers
+    quantization: baseline
     quant_family: fp16
     precision: fp16
-    backend: transformers
     notes: "baseline"
-  - variant_id: int8
+  int8:
+    model_id: "Qwen/Qwen2.5-3B-Instruct"
+    backend: transformers
+    quantization: bitsandbytes_int8
     quant_family: bitsandbytes
     precision: int8
-    backend: transformers
+    load_in_8bit: true
     notes: "8-bit weights"
-  - variant_id: gguf_q4
+  gguf_q4:
+    model_path: models/gguf/qwen-q4.gguf
+    backend: llamacpp
+    quantization: gguf_q4
     quant_family: gguf
     precision: q4
-    backend: llamacpp
     notes: "GGUF quantized"
-""")
 
-        # models.yaml
-        models_yaml = tmpdir / "models.yaml"
-        models_yaml.write_text("""
-baseline:
-  model_id: "Qwen/Qwen2.5-3B-Instruct"
-  backend: transformers
-  quantization: baseline
+experiment:
+  prompt_file: prompts/prompts.jsonl
+  output_dir: results/raw
+  device: auto
+  dtype: auto
+  repetitions: 3
+  warmup_runs: 1
+"""
 
-int8:
-  model_id: "Qwen/Qwen2.5-3B-Instruct"
-  backend: transformers
-  quantization: bitsandbytes_int8
-  load_in_8bit: true
 
-gguf_q4:
-  model_path: models/gguf/qwen-q4.gguf
-  backend: llamacpp
-  quantization: gguf_q4
-""")
-
-        # generation.yaml
-        generation_yaml = tmpdir / "generation.yaml"
-        generation_yaml.write_text("""
-max_new_tokens: 128
-temperature: 0.0
-top_p: 1.0
-do_sample: false
-repetition_penalty: 1.0
-""")
-
-        # experiment.yaml
-        experiment_yaml = tmpdir / "experiment.yaml"
-        experiment_yaml.write_text("""
-prompt_file: prompts/prompts.jsonl
-output_dir: results/raw
-device: auto
-dtype: auto
-repetitions: 3
-warmup_runs: 1
-""")
-
-        yield tmpdir
+@pytest.fixture
+def temp_config_file():
+    """Create a temporary unified config YAML file."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        config_file = Path(tmpdir) / "config.yaml"
+        config_file.write_text(UNIFIED_CONFIG_YAML)
+        yield config_file
 
 
 class TestGenerationConfig:
@@ -110,7 +89,6 @@ class TestGenerationConfig:
         assert cfg.temperature == 0.7
 
     def test_extra_fields_allowed(self):
-        # GenerationConfig.Config.extra = "allow"
         cfg = GenerationConfig(custom_param=42)
         assert cfg.custom_param == 42  # type: ignore
 
@@ -146,10 +124,10 @@ class TestVariantSpec:
 
 
 class TestBenchmarkConfig:
-    def test_valid_benchmark_config(self, temp_config_dir):
+    def test_valid_benchmark_config(self):
         data = {
             "project": "test-bench",
-            "fixed": {"model_family": "Qwen"},
+            "model_family": "Qwen",
             "variants": [
                 {
                     "variant_id": "baseline",
@@ -167,9 +145,25 @@ class TestBenchmarkConfig:
         with pytest.raises(ValidationError):
             BenchmarkConfig(
                 project="test",
-                fixed={},
                 variants=[],
             )
+
+    def test_extra_fields_preserved(self):
+        cfg = BenchmarkConfig(
+            project="test",
+            model_family="Qwen",
+            hardware="RTX 4090",
+            variants=[
+                {
+                    "variant_id": "baseline",
+                    "quant_family": "fp16",
+                    "precision": "fp16",
+                    "backend": "transformers",
+                }
+            ],
+        )
+        assert cfg.model_family == "Qwen"  # type: ignore
+        assert cfg.hardware == "RTX 4090"  # type: ignore
 
 
 class TestModelSpec:
@@ -255,15 +249,16 @@ class TestConfigManager:
         with pytest.raises(FileNotFoundError):
             manager.load_yaml("/nonexistent/path.yaml")
 
-    def test_load_yaml_valid(self, temp_config_dir):
+    def test_load_yaml_valid(self, temp_config_file):
         manager = ConfigManager()
-        data = manager.load_yaml(temp_config_dir / "benchmark.yaml")
+        data = manager.load_yaml(temp_config_file)
         assert data["project"] == "test-benchmark"
+        assert "variants" in data
         assert len(data["variants"]) == 3
 
-    def test_load_from_dir_valid(self, temp_config_dir):
+    def test_load_from_unified_file_valid(self, temp_config_file):
         manager = ConfigManager()
-        manager.load_from_dir(temp_config_dir)
+        manager.load_from_unified_file(temp_config_file)
 
         assert manager.benchmark_config is not None
         assert manager.benchmark_config.project == "test-benchmark"
@@ -272,84 +267,27 @@ class TestConfigManager:
         assert manager.generation_config.max_new_tokens == 128
         assert manager.experiment_config is not None
 
-    def test_variant_id_consistency_checked(self):
-        """Variant IDs in benchmark.yaml must match models.yaml."""
+    def test_load_from_unified_file_empty_variants_rejected(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-
-            # Mismatched variant IDs
-            (tmpdir / "benchmark.yaml").write_text("""
+            config_file = Path(tmpdir) / "config.yaml"
+            config_file.write_text("""
 project: test
-fixed: {}
-variants:
-  - variant_id: baseline
-    quant_family: fp16
-    precision: fp16
-    backend: transformers
-  - variant_id: int8
-    quant_family: bitsandbytes
-    precision: int8
-    backend: transformers
+benchmark:
+  model_family: "Qwen"
+generation:
+  max_new_tokens: 128
+variants: {}
+experiment:
+  prompt_file: p.jsonl
+  output_dir: r/
 """)
-
-            (tmpdir / "models.yaml").write_text("""
-baseline:
-  model_id: model
-  backend: transformers
-  quantization: baseline
-int4:
-  model_id: model
-  backend: transformers
-  quantization: int4
-""")
-
-            (tmpdir / "generation.yaml").write_text("max_new_tokens: 128")
-            (tmpdir / "experiment.yaml").write_text(
-                "prompt_file: p.jsonl\noutput_dir: r/"
-            )
-
             manager = ConfigManager()
-            with pytest.raises(ValueError, match="missing in models.yaml"):
-                manager.load_from_dir(tmpdir)
+            with pytest.raises(ValueError, match="At least one variant"):
+                manager.load_from_unified_file(config_file)
 
-    def test_variant_id_extra_in_models(self):
-        """Extra variant IDs in models.yaml should fail."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-
-            (tmpdir / "benchmark.yaml").write_text("""
-project: test
-fixed: {}
-variants:
-  - variant_id: baseline
-    quant_family: fp16
-    precision: fp16
-    backend: transformers
-""")
-
-            (tmpdir / "models.yaml").write_text("""
-baseline:
-  model_id: model
-  backend: transformers
-  quantization: baseline
-extra_variant:
-  model_id: other
-  backend: transformers
-  quantization: int8
-""")
-
-            (tmpdir / "generation.yaml").write_text("max_new_tokens: 128")
-            (tmpdir / "experiment.yaml").write_text(
-                "prompt_file: p.jsonl\noutput_dir: r/"
-            )
-
-            manager = ConfigManager()
-            with pytest.raises(ValueError, match="missing in benchmark.yaml"):
-                manager.load_from_dir(tmpdir)
-
-    def test_get_variant_config(self, temp_config_dir):
+    def test_get_variant_config(self, temp_config_file):
         manager = ConfigManager()
-        manager.load_from_dir(temp_config_dir)
+        manager.load_from_unified_file(temp_config_file)
 
         variant, model, generation = manager.get_variant_config("int8")
         assert variant.variant_id == "int8"
@@ -357,9 +295,9 @@ extra_variant:
         assert model.load_in_8bit is True
         assert generation.max_new_tokens == 128
 
-    def test_get_variant_config_not_found(self, temp_config_dir):
+    def test_get_variant_config_not_found(self, temp_config_file):
         manager = ConfigManager()
-        manager.load_from_dir(temp_config_dir)
+        manager.load_from_unified_file(temp_config_file)
 
         with pytest.raises(ValueError, match="not found"):
             manager.get_variant_config("nonexistent")
@@ -369,9 +307,9 @@ extra_variant:
         with pytest.raises(RuntimeError, match="not initialized"):
             manager.get_variant_config("baseline")
 
-    def test_to_dict(self, temp_config_dir):
+    def test_to_dict(self, temp_config_file):
         manager = ConfigManager()
-        manager.load_from_dir(temp_config_dir)
+        manager.load_from_unified_file(temp_config_file)
 
         data = manager.to_dict()
         assert "benchmark" in data
@@ -382,12 +320,17 @@ extra_variant:
 
 
 class TestLoadConfigFunction:
-    def test_load_config(self, temp_config_dir):
-        manager = load_config(temp_config_dir)
+    def test_load_config_from_file(self, temp_config_file):
+        manager = load_config(temp_config_file)
         assert isinstance(manager, ConfigManager)
         assert manager.benchmark_config is not None
         assert len(manager.models_config) == 3
 
-    def test_load_config_missing_dir(self):
+    def test_load_config_missing_file(self):
         with pytest.raises(FileNotFoundError):
-            load_config("/nonexistent/dir")
+            load_config("/nonexistent/config.yaml")
+
+    def test_load_config_directory_raises(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with pytest.raises(FileNotFoundError):
+                load_config(tmpdir)
