@@ -100,19 +100,6 @@ def main() -> None:
     )
 
     parser.add_argument(
-        "--log-level",
-        default="INFO",
-        choices=["DEBUG", "INFO", "WARNING", "ERROR"],
-        help="Logging level (default: INFO)",
-    )
-
-    parser.add_argument(
-        "--log-file",
-        type=Path,
-        help="Log file path (default: ./quantbench.log)",
-    )
-
-    parser.add_argument(
         "--golden-answers",
         type=Path,
         default=None,
@@ -123,8 +110,7 @@ def main() -> None:
 
     load_config, BenchmarkOrchestrator, load_prompts, setup_logging = _load_runtime_dependencies()
 
-    # Setup logging
-    setup_logging(level=args.log_level, log_file=args.log_file)
+    setup_logging()
     logger = logging.getLogger(__name__)
 
     try:
